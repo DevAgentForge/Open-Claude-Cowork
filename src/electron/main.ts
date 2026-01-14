@@ -5,6 +5,7 @@ import { getStaticData, pollResources } from "./test.js";
 import { handleClientEvent, sessions } from "./ipc-handlers.js";
 import { generateSessionTitle } from "./libs/util.js";
 import type { ClientEvent } from "./types.js";
+import { loadApiConfig, saveApiConfig, type ApiConfig } from "./libs/config-store.js";
 import "./libs/claude-settings.js";
 
 app.on("ready", () => {
@@ -58,5 +59,20 @@ app.on("ready", () => {
         }
         
         return result.filePaths[0];
+    });
+
+    // Handle API config
+    ipcMainHandle("get-api-config", () => {
+        return loadApiConfig();
+    });
+
+    ipcMainHandle("save-api-config", (_: any, config: ApiConfig) => {
+        try {
+            saveApiConfig(config);
+            return { success: true };
+        } catch (error) {
+            console.error("[main] Failed to save API config:", error);
+            return { success: false, error: String(error) };
+        }
     });
 })

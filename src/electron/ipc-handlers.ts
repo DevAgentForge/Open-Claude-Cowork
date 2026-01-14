@@ -84,10 +84,11 @@ export function handleClientEvent(event: ClientEvent) {
       payload: { sessionId: session.id, prompt: event.payload.prompt }
     });
 
+    // 新会话不传递 resumeSessionId，确保不加载历史记录
     runClaude({
       prompt: event.payload.prompt,
       session,
-      resumeSessionId: session.claudeSessionId,
+      resumeSessionId: undefined,
       onEvent: emit,
       onSessionUpdate: (updates) => {
         sessions.updateSession(session.id, updates);

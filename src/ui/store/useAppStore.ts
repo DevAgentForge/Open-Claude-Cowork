@@ -29,6 +29,7 @@ interface AppState {
   globalError: string | null;
   sessionsLoaded: boolean;
   showStartModal: boolean;
+  showSettingsModal: boolean;
   historyRequested: Set<string>;
 
   setPrompt: (prompt: string) => void;
@@ -36,6 +37,7 @@ interface AppState {
   setPendingStart: (pending: boolean) => void;
   setGlobalError: (error: string | null) => void;
   setShowStartModal: (show: boolean) => void;
+  setShowSettingsModal: (show: boolean) => void;
   setActiveSessionId: (id: string | null) => void;
   markHistoryRequested: (sessionId: string) => void;
   resolvePermissionRequest: (sessionId: string, toolUseId: string) => void;
@@ -55,6 +57,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   globalError: null,
   sessionsLoaded: false,
   showStartModal: false,
+  showSettingsModal: false,
   historyRequested: new Set(),
 
   setPrompt: (prompt) => set({ prompt }),
@@ -62,6 +65,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setPendingStart: (pendingStart) => set({ pendingStart }),
   setGlobalError: (globalError) => set({ globalError }),
   setShowStartModal: (showStartModal) => set({ showStartModal }),
+  setShowSettingsModal: (showSettingsModal) => set({ showSettingsModal }),
   setActiveSessionId: (id) => set({ activeSessionId: id }),
 
   markHistoryRequested: (sessionId) => {
