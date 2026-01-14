@@ -62,14 +62,14 @@ export function StartSessionModal({
               </button>
             </div>
             {recentCwds.length > 0 && (
-              <div className="mt-2 grid gap-2">
+              <div className="mt-2 grid gap-2 w-full">
                 <div className="text-[11px] font-medium uppercase tracking-wide text-muted-light">Recent</div>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 w-full min-w-0">
                   {recentCwds.map((path) => (
                     <button
                       key={path}
                       type="button"
-                      className={`max-w-full truncate rounded-full border px-3 py-1.5 text-xs transition-colors ${cwd === path ? "border-accent/60 bg-accent/10 text-ink-800" : "border-ink-900/10 bg-white text-muted hover:border-ink-900/20 hover:text-ink-700"}`}
+                      className={`truncate rounded-full border px-3 py-1.5 text-xs transition-colors whitespace-nowrap ${cwd === path ? "border-accent/60 bg-accent/10 text-ink-800" : "border-ink-900/10 bg-white text-muted hover:border-ink-900/20 hover:text-ink-700"}`}
                       onClick={() => onCwdChange(path)}
                       title={path}
                     >
