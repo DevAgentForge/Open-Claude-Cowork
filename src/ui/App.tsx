@@ -5,6 +5,7 @@ import { useAppStore } from "./store/useAppStore";
 import type { ServerEvent } from "./types";
 import { Sidebar } from "./components/Sidebar";
 import { StartSessionModal } from "./components/StartSessionModal";
+import { SettingsModal } from "./components/SettingsModal";
 import { PromptInput, usePromptActions } from "./components/PromptInput";
 import { MessageCard } from "./components/EventCard";
 import MDContent from "./render/markdown";
@@ -14,6 +15,12 @@ function App() {
   const partialMessageRef = useRef("");
   const [partialMessage, setPartialMessage] = useState("");
   const [showPartialMessage, setShowPartialMessage] = useState(false);
+  
+  const [showSettings, setShowSettings] = useState(false);
+  const [isConfigured, setIsConfigured] = useState<boolean | null>(null);
+  const [configData, setConfigData] = useState<{ apiKey?: string; baseUrl?: string; model?: string }>({});
+  const [isTesting, setIsTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; error?: string } | null>(null);
 
   const sessions = useAppStore((s) => s.sessions);
   const activeSessionId = useAppStore((s) => s.activeSessionId);
@@ -72,7 +79,21 @@ function App() {
   const onEvent = useCallback((event: ServerEvent) => {
     handleServerEvent(event);
     handlePartialMessages(event);
-  }, [handleServerEvent, handlePartialMessages]);
+    
+    if (event.type === "config.configured") {
+      setIsConfigured(event.payload.configured);
+      if (!event.payload.configured && isConfigured === null) {
+        setShowSettings(true);
+      }
+    }
+    if (event.type === "config.data") {
+      setConfigData(event.payload);
+    }
+    if (event.type === "config.testResult") {
+      setIsTesting(false);
+      setTestResult(event.payload);
+    }
+  }, [handleServerEvent, handlePartialMessages, isConfigured]);
 
   const { connected, sendEvent } = useIPC(onEvent);
   const { handleStartFromModal } = usePromptActions(sendEvent);
@@ -84,6 +105,13 @@ function App() {
 
   useEffect(() => {
     if (connected) sendEvent({ type: "session.list" });
+  }, [connected, sendEvent]);
+
+  useEffect(() => {
+    if (connected) {
+      sendEvent({ type: "config.isConfigured" });
+      sendEvent({ type: "config.get" });
+    }
   }, [connected, sendEvent]);
 
   useEffect(() => {
@@ -114,12 +142,35 @@ function App() {
     resolvePermissionRequest(activeSessionId, toolUseId);
   }, [activeSessionId, sendEvent, resolvePermissionRequest]);
 
+  const handleOpenSettings = useCallback(() => {
+    sendEvent({ type: "config.get" });
+    setShowSettings(true);
+  }, [sendEvent]);
+
+  const handleSaveConfig = useCallback((config: { apiKey?: string; baseUrl?: string; model?: string }) => {
+    const cleanConfig = {
+      apiKey: config.apiKey === "••••••••" ? undefined : config.apiKey,
+      baseUrl: config.baseUrl || undefined,
+      model: config.model || undefined,
+    };
+    sendEvent({ type: "config.set", payload: cleanConfig });
+    setShowSettings(false);
+    setTestResult(null);
+  }, [sendEvent]);
+
+  const handleTestConfig = useCallback((apiKey: string, baseUrl?: string) => {
+    setIsTesting(true);
+    setTestResult(null);
+    sendEvent({ type: "config.test", payload: { apiKey, baseUrl } });
+  }, [sendEvent]);
+
   return (
     <div className="flex h-screen bg-surface">
       <Sidebar
         connected={connected}
         onNewSession={handleNewSession}
         onDeleteSession={handleDeleteSession}
+        onOpenSettings={handleOpenSettings}
       />
 
       <main className="flex flex-1 flex-col ml-[280px] bg-surface-cream">
@@ -192,6 +243,16 @@ function App() {
           onClose={() => setShowStartModal(false)}
         />
       )}
+
+      <SettingsModal
+        isOpen={showSettings}
+        onClose={() => { setShowSettings(false); setTestResult(null); }}
+        onSave={handleSaveConfig}
+        onTest={handleTestConfig}
+        testResult={testResult}
+        isTesting={isTesting}
+        initialConfig={configData}
+      />
 
       {globalError && (
         <div className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-xl border border-error/20 bg-error-light px-4 py-3 shadow-lg">

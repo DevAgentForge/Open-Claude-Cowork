@@ -9,7 +9,8 @@
         "dist-electron/preload.cjs"
     ],
     "asarUnpack": [
-        "node_modules/@anthropic-ai/claude-agent-sdk/**/*"
+        "node_modules/@anthropic-ai/claude-agent-sdk/**/*",
+        "node_modules/@anthropic-ai/claude-code/**/*"
     ],
     "icon": "./claude-color.png",
     "mac": {

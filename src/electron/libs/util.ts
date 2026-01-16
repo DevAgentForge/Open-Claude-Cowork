@@ -1,22 +1,20 @@
-import { claudeCodeEnv } from "./claude-settings.js";
+import { buildClaudeEnv } from "./claude-settings.js";
 import { unstable_v2_prompt } from "@anthropic-ai/claude-agent-sdk";
 import type { SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
 import { app } from "electron";
 import { join } from "path";
 import { homedir } from "os";
 
-// Get Claude Code CLI path for packaged app
 export function getClaudeCodePath(): string | undefined {
   if (app.isPackaged) {
     return join(
       process.resourcesPath,
-      'app.asar.unpacked/node_modules/@anthropic-ai/claude-agent-sdk/cli.js'
+      'app.asar.unpacked/node_modules/@anthropic-ai/claude-code/cli.js'
     );
   }
-  return undefined;
+  return join(process.cwd(), 'node_modules/@anthropic-ai/claude-code/cli.js');
 }
 
-// Build enhanced PATH for packaged environment
 export function getEnhancedEnv(): Record<string, string | undefined> {
   const home = homedir();
   const additionalPaths = [
@@ -34,10 +32,16 @@ export function getEnhancedEnv(): Record<string, string | undefined> {
 
   const currentPath = process.env.PATH || '';
   const newPath = [...additionalPaths, currentPath].join(':');
+  
+  const claudeEnv = buildClaudeEnv();
 
   return {
     ...process.env,
     PATH: newPath,
+    ANTHROPIC_AUTH_TOKEN: claudeEnv.ANTHROPIC_AUTH_TOKEN,
+    ANTHROPIC_BASE_URL: claudeEnv.ANTHROPIC_BASE_URL || undefined,
+    ANTHROPIC_MODEL: claudeEnv.ANTHROPIC_MODEL || undefined,
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "true",
   };
 }
 
@@ -46,13 +50,15 @@ export const enhancedEnv = getEnhancedEnv();
 
 export const generateSessionTitle = async (userIntent: string | null) => {
   if (!userIntent) return "New Session";
+  
+  const freshEnv = getEnhancedEnv();
 
   const result: SDKResultMessage = await unstable_v2_prompt(
     `please analynis the following user input to generate a short but clearly title to identify this conversation theme:
     ${userIntent}
     directly output the title, do not include any other content`, {
-    model: claudeCodeEnv.ANTHROPIC_MODEL,
-    env: enhancedEnv,
+    model: buildClaudeEnv().ANTHROPIC_MODEL,
+    env: freshEnv,
     pathToClaudeCodeExecutable: claudeCodePath,
   });
 

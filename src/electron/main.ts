@@ -5,7 +5,13 @@ import { getStaticData, pollResources } from "./test.js";
 import { handleClientEvent, sessions } from "./ipc-handlers.js";
 import { generateSessionTitle } from "./libs/util.js";
 import type { ClientEvent } from "./types.js";
-import "./libs/claude-settings.js";
+import { ConfigStore } from "./libs/config-store.js";
+import { setConfigStore } from "./libs/claude-settings.js";
+import { join } from "path";
+
+const CONFIG_DB_PATH = join(app.getPath("userData"), "config.db");
+const configStore = new ConfigStore(CONFIG_DB_PATH);
+setConfigStore(configStore);
 
 app.on("ready", () => {
     const mainWindow = new BrowserWindow({

@@ -2,6 +2,7 @@ import { BrowserWindow } from "electron";
 import type { ClientEvent, ServerEvent } from "./types.js";
 import { runClaude, type RunnerHandle } from "./libs/runner.js";
 import { SessionStore } from "./libs/session-store.js";
+import { getConfigStore, testAnthropicConnection } from "./libs/claude-settings.js";
 import { app } from "electron";
 import { join } from "path";
 
@@ -216,6 +217,55 @@ export function handleClientEvent(event: ClientEvent) {
     if (pending) {
       pending.resolve(event.payload.result);
     }
+    return;
+  }
+
+  if (event.type === "config.get") {
+    const store = getConfigStore();
+    if (!store) {
+      broadcast({ type: "config.data", payload: {} });
+      return;
+    }
+    const config = store.getConfig();
+    broadcast({
+      type: "config.data",
+      payload: {
+        apiKey: config.apiKey ? "••••••••" : undefined,
+        baseUrl: config.baseUrl,
+        model: config.model,
+      },
+    });
+    return;
+  }
+
+  if (event.type === "config.set") {
+    const store = getConfigStore();
+    if (!store) return;
+    store.setConfig(event.payload);
+    broadcast({ type: "config.configured", payload: { configured: store.isConfigured() } });
+    return;
+  }
+
+  if (event.type === "config.test") {
+    testAnthropicConnection(event.payload.apiKey, event.payload.baseUrl)
+      .then((result) => {
+        broadcast({ type: "config.testResult", payload: result });
+      })
+      .catch((error) => {
+        broadcast({
+          type: "config.testResult",
+          payload: { success: false, error: String(error) },
+        });
+      });
+    return;
+  }
+
+  if (event.type === "config.isConfigured") {
+    const store = getConfigStore();
+    broadcast({
+      type: "config.configured",
+      payload: { configured: store?.isConfigured() ?? false },
+    });
     return;
   }
 }

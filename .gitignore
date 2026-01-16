@@ -14,7 +14,10 @@ dist-electron
 *.local
 
 # Editor directories and files
+.serena
+.specstory
 .vscode/*
+.cursor/*
 !.vscode/extensions.json
 .idea
 .DS_Store
@@ -25,3 +28,4 @@ dist-electron
 *.sw?
 
 .env
+.cursorindexingignore
