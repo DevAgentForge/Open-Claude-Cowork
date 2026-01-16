@@ -19,8 +19,10 @@ export function ProviderModal({ provider, onSave, onDelete, onClose }: ProviderM
   const [sonnetModel, setSonnetModel] = useState(provider?.models?.sonnet || "");
   const [haikuModel, setHaikuModel] = useState(provider?.models?.haiku || "");
 
+  // Sync form state when provider prop changes - valid pattern for prop sync
   useEffect(() => {
     if (provider) {
+      /* eslint-disable react-hooks/set-state-in-effect */
       setName(provider.name);
       setBaseUrl(provider.baseUrl || "");
       // SECURITY: Never set token from provider - tokens are not sent to renderer
@@ -29,6 +31,7 @@ export function ProviderModal({ provider, onSave, onDelete, onClose }: ProviderM
       setOpusModel(provider.models?.opus || "");
       setSonnetModel(provider.models?.sonnet || "");
       setHaikuModel(provider.models?.haiku || "");
+      /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [provider]);
 

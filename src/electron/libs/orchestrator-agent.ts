@@ -158,6 +158,7 @@ export class OrchestratorAgent {
   /**
    * Trigger hooks for an event
    */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async triggerHooks(event: string, _context: Record<string, unknown>): Promise<void> {
     const hooks = this.getHooksForEvent(event);
     for (const hookConfig of hooks) {

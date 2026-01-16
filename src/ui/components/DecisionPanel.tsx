@@ -24,9 +24,12 @@ export function DecisionPanel({
   const [selectedOptions, setSelectedOptions] = useState<Record<number, string[]>>({});
   const [otherInputs, setOtherInputs] = useState<Record<number, string>>({});
 
+  // Reset state when request changes - valid pattern for prop sync
   useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect */
     setSelectedOptions({});
     setOtherInputs({});
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, [request.toolUseId]);
 
   const toggleOption = (qIndex: number, optionLabel: string, multiSelect?: boolean) => {

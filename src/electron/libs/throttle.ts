@@ -7,7 +7,7 @@
  * Creates a throttled function that only invokes func at most once per every wait milliseconds.
  * The throttled function comes with a cancel method to cancel delayed func invocations.
  */
-export function throttle<T extends (...args: any[]) => any>(
+export function throttle<T extends (...args: unknown[]) => unknown>(
   func: T,
   wait: number
 ): T & { cancel: () => void } {
@@ -55,7 +55,7 @@ export function throttle<T extends (...args: any[]) => any>(
  * Creates a debounced function that delays invoking func until after wait milliseconds
  * have elapsed since the last time the debounced function was invoked.
  */
-export function debounce<T extends (...args: any[]) => any>(
+export function debounce<T extends (...args: unknown[]) => unknown>(
   func: T,
   wait: number
 ): T & { cancel: () => void } {

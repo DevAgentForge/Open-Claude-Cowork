@@ -44,7 +44,9 @@ export function Sidebar({
     return list;
   }, [sessions]);
 
+  // Reset copied state when dialog changes - valid pattern for prop sync
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCopied(false);
     if (closeTimerRef.current) {
       window.clearTimeout(closeTimerRef.current);

@@ -10,8 +10,9 @@ export function useIPC(onEvent: (event: ServerEvent) => void) {
     const unsubscribe = window.electron.onServerEvent((event: ServerEvent) => {
       onEvent(event);
     });
-    
+
     unsubscribeRef.current = unsubscribe;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setConnected(true);
 
     return () => {

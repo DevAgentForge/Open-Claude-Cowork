@@ -108,19 +108,33 @@ const ToolResult = ({ messageContent }: { messageContent: ToolResultContent }) =
   const [isExpanded, setIsExpanded] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const isFirstRender = useRef(true);
-  let lines: string[] = [];
-  
-  if (messageContent.type !== "tool_result") return null;
-  
-  const toolUseId = messageContent.tool_use_id;
-  const status: ToolStatus = messageContent.is_error ? "error" : "success";
+
+  // Hooks must be called unconditionally before any returns
+  const isToolResult = messageContent.type === "tool_result";
+  const toolUseId = isToolResult ? messageContent.tool_use_id : undefined;
+  const status: ToolStatus = isToolResult && messageContent.is_error ? "error" : "success";
+
+  useEffect(() => {
+    if (toolUseId) setToolStatus(toolUseId, status);
+  }, [toolUseId, status]);
+
+  useEffect(() => {
+    if (!isToolResult) return;
+    if (isFirstRender.current) { isFirstRender.current = false; return; }
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [isToolResult, isExpanded]);
+
+  if (!isToolResult) return null;
+
   const isError = messageContent.is_error;
+  let lines: string[] = [];
 
   if (messageContent.is_error) {
     lines = [extractTagContent(String(messageContent.content), "tool_use_error") || String(messageContent.content)];
   } else {
     try {
       if (Array.isArray(messageContent.content)) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         lines = messageContent.content.map((item: any) => item.text || "").join("\n").split("\n");
       } else {
         lines = String(messageContent.content).split("\n");
@@ -131,12 +145,6 @@ const ToolResult = ({ messageContent }: { messageContent: ToolResultContent }) =
   const isMarkdownContent = isMarkdown(lines.join("\n"));
   const hasMoreLines = lines.length > MAX_VISIBLE_LINES;
   const visibleContent = hasMoreLines && !isExpanded ? lines.slice(0, MAX_VISIBLE_LINES).join("\n") : lines.join("\n");
-
-  useEffect(() => { setToolStatus(toolUseId, status); }, [toolUseId, status]);
-  useEffect(() => {
-    if (!hasMoreLines || isFirstRender.current) { isFirstRender.current = false; return; }
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, [hasMoreLines, isExpanded]);
 
   return (
     <div className="flex flex-col mt-4">
@@ -168,18 +176,22 @@ const AssistantBlockCard = ({ title, text, showIndicator = false }: { title: str
 );
 
 const ToolUseCard = ({ messageContent, showIndicator = false }: { messageContent: MessageContent; showIndicator?: boolean }) => {
+  // Hooks must be called unconditionally before any returns
+  const toolUseId = messageContent.type === "tool_use" ? messageContent.id : undefined;
+  const toolStatus = useToolStatus(toolUseId);
+
+  useEffect(() => {
+    if (toolUseId && !toolStatusMap.has(toolUseId)) setToolStatus(toolUseId, "pending");
+  }, [toolUseId]);
+
   if (messageContent.type !== "tool_use") return null;
-  
-  const toolStatus = useToolStatus(messageContent.id);
+
   const statusVariant = toolStatus === "error" ? "error" : "success";
   const isPending = !toolStatus || toolStatus === "pending";
   const shouldShowDot = toolStatus === "success" || toolStatus === "error" || showIndicator;
 
-  useEffect(() => {
-    if (messageContent?.id && !toolStatusMap.has(messageContent.id)) setToolStatus(messageContent.id, "pending");
-  }, [messageContent?.id]);
-
   const getToolInfo = (): string | null => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const input = messageContent.input as Record<string, any>;
     switch (messageContent.name) {
       case "Bash": return input?.command || null;
@@ -245,18 +257,27 @@ const AskUserQuestionCard = ({
   );
 };
 
+// Extracted outside to avoid defining component inside render
+const InfoItem = ({ name, value }: { name: string; value: string }) => (
+  <div className="text-[14px]">
+    <span className="mr-4 font-normal">{name}</span>
+    <span className="font-light">{value}</span>
+  </div>
+);
+
+type SystemInitMessage = SDKMessage & {
+  subtype: "init";
+  session_id?: string;
+  model?: string;
+  permissionMode?: string;
+  cwd?: string;
+};
+
 const SystemInfoCard = ({ message, showIndicator = false }: { message: SDKMessage; showIndicator?: boolean }) => {
   if (message.type !== "system" || !("subtype" in message) || message.subtype !== "init") return null;
-  
-  const systemMsg = message as any;
-  
-  const InfoItem = ({ name, value }: { name: string; value: string }) => (
-    <div className="text-[14px]">
-      <span className="mr-4 font-normal">{name}</span>
-      <span className="font-light">{value}</span>
-    </div>
-  );
-  
+
+  const systemMsg = message as SystemInitMessage;
+
   return (
     <div className="flex flex-col gap-2">
       <div className="header text-accent flex items-center gap-2">

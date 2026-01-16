@@ -51,15 +51,15 @@ app.on("ready", async () => {
             return getStaticData();
         });
 
-        ipcMain.on("client-event", (_event: any, event: ClientEvent) => {
+        ipcMain.on("client-event", (_event: Electron.IpcMainEvent, event: ClientEvent) => {
             handleClientEvent(event);
         });
 
-        ipcMainHandle("generate-session-title", async (_: any, userInput: string | null) => {
+        ipcMainHandle("generate-session-title", async (_: Electron.IpcMainInvokeEvent, userInput: string | null) => {
             return await generateSessionTitle(userInput);
         });
 
-        ipcMainHandle("get-recent-cwds", (_: any, limit?: number) => {
+        ipcMainHandle("get-recent-cwds", (_: Electron.IpcMainInvokeEvent, limit?: number) => {
             const boundedLimit = limit ? Math.min(Math.max(limit, 1), 20) : 8;
             return sessions.listRecentCwds(boundedLimit);
         });

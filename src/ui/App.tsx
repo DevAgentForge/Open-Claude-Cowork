@@ -41,7 +41,8 @@ function AppContent() {
   const [editingProvider, setEditingProvider] = useState<SafeProviderConfig | null>(null);
 
   // Helper function to extract partial message content
-  const getPartialMessageContent = (eventMessage: any) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const getPartialMessageContent = (eventMessage: { delta: { type: string; [key: string]: any } }) => {
     try {
       const realType = eventMessage.delta.type.split("_")[0];
       return eventMessage.delta[realType];
@@ -55,6 +56,7 @@ function AppContent() {
   const handlePartialMessages = useCallback((partialEvent: ServerEvent) => {
     if (partialEvent.type !== "stream.message" || partialEvent.payload.message.type !== "stream_event") return;
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const message = partialEvent.payload.message as any;
     if (message.event.type === "content_block_start") {
       partialMessageRef.current = "";

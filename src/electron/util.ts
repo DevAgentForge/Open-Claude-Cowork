@@ -9,6 +9,7 @@ export function isDev(): boolean {
 }
 
 // Making IPC Typesafe
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function ipcMainHandle<Key extends keyof EventPayloadMapping>(key: Key, handler: (...args: any[]) => EventPayloadMapping[Key] | Promise<EventPayloadMapping[Key]>) {
     ipcMain.handle(key, (event, ...args) => {
         if (event.senderFrame) validateEventFrame(event.senderFrame);
