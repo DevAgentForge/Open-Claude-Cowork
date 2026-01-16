@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import type { LlmProviderConfig } from "../types";
+import type { SafeProviderConfig, ProviderSavePayload } from "../types";
 
 interface ProviderModalProps {
-  provider?: LlmProviderConfig | null;
-  onSave: (provider: LlmProviderConfig) => void;
+  provider?: SafeProviderConfig | null;
+  onSave: (provider: ProviderSavePayload) => void;
   onDelete?: (providerId: string) => void;
   onClose: () => void;
 }
@@ -11,7 +11,9 @@ interface ProviderModalProps {
 export function ProviderModal({ provider, onSave, onDelete, onClose }: ProviderModalProps) {
   const [name, setName] = useState(provider?.name || "");
   const [baseUrl, setBaseUrl] = useState(provider?.baseUrl || "");
-  const [authToken, setAuthToken] = useState(provider?.authToken || "");
+  // SECURITY: Token is never received from main process, always empty initially
+  // User must enter token when creating new or updating existing provider
+  const [authToken, setAuthToken] = useState("");
   const [defaultModel, setDefaultModel] = useState(provider?.defaultModel || "");
   const [opusModel, setOpusModel] = useState(provider?.models?.opus || "");
   const [sonnetModel, setSonnetModel] = useState(provider?.models?.sonnet || "");
@@ -20,8 +22,9 @@ export function ProviderModal({ provider, onSave, onDelete, onClose }: ProviderM
   useEffect(() => {
     if (provider) {
       setName(provider.name);
-      setBaseUrl(provider.baseUrl);
-      setAuthToken(provider.authToken);
+      setBaseUrl(provider.baseUrl || "");
+      // SECURITY: Never set token from provider - tokens are not sent to renderer
+      setAuthToken("");
       setDefaultModel(provider.defaultModel || "");
       setOpusModel(provider.models?.opus || "");
       setSonnetModel(provider.models?.sonnet || "");
@@ -30,15 +33,30 @@ export function ProviderModal({ provider, onSave, onDelete, onClose }: ProviderM
   }, [provider]);
 
   const handleSave = () => {
-    if (!name.trim() || !baseUrl.trim() || !authToken.trim()) {
+    // For new providers, token is required
+    // For existing providers with hasToken, token is optional (keeps existing if not provided)
+    const isNewProvider = !provider?.id;
+    const hasExistingToken = provider?.hasToken;
+
+    if (!name.trim() || !baseUrl.trim()) {
       return;
     }
 
-    const providerConfig: LlmProviderConfig = {
-      id: provider?.id || "",
+    // Require token for new providers or if existing provider has no token
+    if (isNewProvider && !authToken.trim()) {
+      return;
+    }
+    if (!isNewProvider && !hasExistingToken && !authToken.trim()) {
+      return;
+    }
+
+    const providerConfig: ProviderSavePayload = {
+      id: provider?.id,
       name: name.trim(),
       baseUrl: baseUrl.trim(),
-      authToken: authToken.trim(),
+      // SECURITY: Only include token if user entered one
+      // Empty string means "keep existing token" for existing providers
+      authToken: authToken.trim() || undefined,
       defaultModel: defaultModel.trim() || undefined,
       models: {
         opus: opusModel.trim() || undefined,
@@ -115,14 +133,17 @@ export function ProviderModal({ provider, onSave, onDelete, onClose }: ProviderM
             <span className="text-xs font-medium text-muted">Auth Token</span>
             <input
               className="rounded-xl border border-ink-900/10 bg-surface-secondary px-4 py-2.5 text-sm text-ink-800 placeholder:text-muted-light focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/20 transition-colors"
-              placeholder="sk-ant-api03-..."
+              placeholder={provider?.hasToken ? "•••••••• (leave empty to keep current)" : "sk-ant-api03-..."}
               type="password"
               value={authToken}
               onChange={(e) => setAuthToken(e.target.value)}
-              required
+              required={!provider?.hasToken}
             />
             <span className="text-[10px] text-muted-light">
-              API key or auth token for the provider
+              {provider?.hasToken
+                ? "Leave empty to keep current token, or enter new token to update"
+                : "API key or auth token for the provider"
+              }
             </span>
           </label>
 
@@ -185,7 +206,7 @@ export function ProviderModal({ provider, onSave, onDelete, onClose }: ProviderM
             <button
               type="button"
               onClick={handleSave}
-              disabled={!name.trim() || !baseUrl.trim() || !authToken.trim()}
+              disabled={!name.trim() || !baseUrl.trim() || (!provider?.hasToken && !authToken.trim())}
               className="flex-1 flex justify-center rounded-full bg-accent px-5 py-3 text-sm font-medium text-white shadow-soft hover:bg-accent-hover transition-colors disabled:cursor-not-allowed disabled:opacity-50"
             >
               {provider ? "Save Changes" : "Add Provider"}

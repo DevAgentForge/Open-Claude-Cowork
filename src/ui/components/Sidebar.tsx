@@ -2,19 +2,23 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useAppStore } from "../store/useAppStore";
+import { useTheme } from "../contexts/ThemeContext";
 
 interface SidebarProps {
   connected: boolean;
   onNewSession: () => void;
   onDeleteSession: (sessionId: string) => void;
   onOpenProviderSettings: () => void;
+  onOpenThemeSettings: () => void;
 }
 
 export function Sidebar({
   onNewSession,
   onDeleteSession,
-  onOpenProviderSettings
+  onOpenProviderSettings,
+  onOpenThemeSettings
 }: SidebarProps) {
+  const { theme, toggleMode } = useTheme();
   const sessions = useAppStore((state) => state.sessions);
   const activeSessionId = useAppStore((state) => state.activeSessionId);
   const setActiveSessionId = useAppStore((state) => state.setActiveSessionId);
@@ -75,7 +79,10 @@ export function Sidebar({
   };
 
   return (
-    <aside className="fixed inset-y-0 left-0 flex h-full w-[280px] flex-col gap-4 border-r border-ink-900/5 bg-[#FAF9F6] px-4 pb-4 pt-12">
+    <aside
+      className="fixed inset-y-0 left-0 flex h-full w-[280px] flex-col gap-4 border-r border-ink-900/5 dark:border-white/10 px-4 pb-4 pt-12"
+      style={{ backgroundColor: "var(--theme-sidebar-color, #FAF9F6)" }}
+    >
       <div 
         className="absolute top-0 left-0 right-0 h-12"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
@@ -115,6 +122,37 @@ export function Sidebar({
             {selectedProvider.baseUrl}
           </div>
         )}
+      </div>
+
+      {/* Theme Toggle */}
+      <div className="flex items-center gap-2 rounded-xl border border-ink-900/10 dark:border-white/10 bg-surface dark:bg-ink-900/50 p-2">
+        <button
+          onClick={toggleMode}
+          className="flex-1 flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition-colors hover:bg-surface-tertiary dark:hover:bg-white/10 text-ink-700 dark:text-white"
+          aria-label={`Switch to ${theme.mode === 'light' ? 'dark' : 'light'} mode`}
+        >
+          {theme.mode === "light" ? (
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="5" />
+              <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+            </svg>
+          )}
+          {theme.mode === "light" ? "Light" : "Dark"}
+        </button>
+        <button
+          onClick={onOpenThemeSettings}
+          className="rounded-lg px-2 py-2 text-xs text-accent hover:bg-surface-tertiary dark:hover:bg-white/10 transition-colors"
+          aria-label="Open theme settings"
+        >
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" />
+          </svg>
+        </button>
       </div>
 
       <div className="flex flex-col gap-2 overflow-y-auto">

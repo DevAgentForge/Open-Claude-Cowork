@@ -2,19 +2,23 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import { useIPC } from "./hooks/useIPC";
 import { useAppStore } from "./store/useAppStore";
-import type { ServerEvent, LlmProviderConfig } from "./types";
+import type { ServerEvent, SafeProviderConfig, ProviderSavePayload } from "./types";
 import { Sidebar } from "./components/Sidebar";
 import { StartSessionModal } from "./components/StartSessionModal";
 import { ProviderModal } from "./components/ProviderModal";
+import { ThemeSettings } from "./components/ThemeSettings";
+import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import { PromptInput, usePromptActions } from "./components/PromptInput";
 import { MessageCard } from "./components/EventCard";
 import MDContent from "./render/markdown";
 
-function App() {
+function AppContent() {
+  const { theme } = useTheme();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const partialMessageRef = useRef("");
   const [partialMessage, setPartialMessage] = useState("");
   const [showPartialMessage, setShowPartialMessage] = useState(false);
+  const [showThemeSettings, setShowThemeSettings] = useState(false);
 
   const sessions = useAppStore((s) => s.sessions);
   const activeSessionId = useAppStore((s) => s.activeSessionId);
@@ -33,9 +37,8 @@ function App() {
   const cwd = useAppStore((s) => s.cwd);
   const setCwd = useAppStore((s) => s.setCwd);
   const pendingStart = useAppStore((s) => s.pendingStart);
-  const addOrUpdateProvider = useAppStore((s) => s.addOrUpdateProvider);
   const removeProvider = useAppStore((s) => s.removeProvider);
-  const [editingProvider, setEditingProvider] = useState<LlmProviderConfig | null>(null);
+  const [editingProvider, setEditingProvider] = useState<SafeProviderConfig | null>(null);
 
   // Helper function to extract partial message content
   const getPartialMessageContent = (eventMessage: any) => {
@@ -122,10 +125,15 @@ function App() {
     setShowProviderModal(true);
   }, [setShowProviderModal]);
 
-  const handleSaveProvider = useCallback((provider: LlmProviderConfig) => {
-    addOrUpdateProvider(provider);
+  const handleOpenThemeSettings = useCallback(() => {
+    setShowThemeSettings(true);
+  }, []);
+
+  const handleSaveProvider = useCallback((provider: ProviderSavePayload) => {
+    // Send save request to main process
+    // Main process will respond with SafeProviderConfig via provider.saved event
     sendEvent({ type: "provider.save", payload: { provider } });
-  }, [addOrUpdateProvider, sendEvent]);
+  }, [sendEvent]);
 
   const handleDeleteProvider = useCallback((providerId: string) => {
     removeProvider(providerId);
@@ -139,20 +147,24 @@ function App() {
   }, [activeSessionId, sendEvent, resolvePermissionRequest]);
 
   return (
-    <div className="flex h-screen bg-surface">
+    <div className="flex h-screen" style={{ backgroundColor: theme.workspaceColor }}>
       <Sidebar
         connected={connected}
         onNewSession={handleNewSession}
         onDeleteSession={handleDeleteSession}
         onOpenProviderSettings={handleOpenProviderSettings}
+        onOpenThemeSettings={handleOpenThemeSettings}
       />
 
-      <main className="flex flex-1 flex-col ml-[280px] bg-surface-cream">
-        <div 
-          className="flex items-center justify-center h-12 border-b border-ink-900/10 bg-surface-cream select-none"
-          style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+      <main
+        className="flex flex-1 flex-col ml-[280px]"
+        style={{ backgroundColor: "var(--theme-workspace-color, #FAF9F6)" }}
+      >
+        <div
+          className="flex items-center justify-center h-12 border-b border-ink-900/10 dark:border-white/10 select-none"
+          style={{ WebkitAppRegion: 'drag', backgroundColor: "var(--theme-workspace-color, #FAF9F6)" } as React.CSSProperties}
         >
-          <span className="text-sm font-medium text-ink-700">{activeSession?.title || "Agent Cowork"}</span>
+          <span className="text-sm font-medium text-ink-700 dark:text-white">{activeSession?.title || "Agent Cowork"}</span>
         </div>
 
         <div className="flex-1 overflow-y-auto px-8 pb-40 pt-6">
@@ -240,7 +252,20 @@ function App() {
           }}
         />
       )}
+
+      {showThemeSettings && (
+        <ThemeSettings onClose={() => setShowThemeSettings(false)} />
+      )}
     </div>
+  );
+}
+
+// Main App component wrapped with ThemeProvider
+function App() {
+  return (
+    <ThemeProvider>
+      <AppContent />
+    </ThemeProvider>
   );
 }
 

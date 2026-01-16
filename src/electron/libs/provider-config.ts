@@ -1,10 +1,26 @@
-import type { LlmProviderConfig } from "../types.js";
+import type { LlmProviderConfig, SafeProviderConfig, ProviderSavePayload } from "../types.js";
 import { readFileSync, writeFileSync, existsSync, chmodSync } from "fs";
 import { join } from "path";
-import { app, nativeSafeStorage } from "electron";
+import { app, safeStorage } from "electron";
 import { randomUUID } from "crypto";
 
 const PROVIDERS_FILE = join(app.getPath("userData"), "providers.json");
+
+/**
+ * Convert internal LlmProviderConfig to SafeProviderConfig (NO tokens)
+ * This is safe to send to the renderer process via IPC
+ */
+export function toSafeProvider(provider: LlmProviderConfig): SafeProviderConfig {
+  return {
+    id: provider.id,
+    name: provider.name,
+    baseUrl: provider.baseUrl,
+    defaultModel: provider.defaultModel,
+    models: provider.models,
+    hasToken: Boolean(provider.authToken && provider.authToken.length > 0),
+    isDefault: false
+  };
+}
 
 /**
  * Encrypt sensitive fields before storage (CWE-200 mitigation)
@@ -13,7 +29,7 @@ function encryptSensitiveData(provider: LlmProviderConfig): LlmProviderConfig {
   const encrypted = { ...provider };
   if (encrypted.authToken) {
     try {
-      encrypted.authToken = nativeSafeStorage.encryptString(encrypted.authToken).toString("base64");
+      encrypted.authToken = safeStorage.encryptString(encrypted.authToken).toString("base64");
     } catch {
       // If encryption fails, keep original (not ideal but don't break functionality)
     }
@@ -28,7 +44,7 @@ function decryptSensitiveData(provider: LlmProviderConfig): LlmProviderConfig {
   const decrypted = { ...provider };
   if (decrypted.authToken) {
     try {
-      decrypted.authToken = nativeSafeStorage.decryptString(Buffer.from(decrypted.authToken, "base64"));
+      decrypted.authToken = safeStorage.decryptString(Buffer.from(decrypted.authToken, "base64"));
     } catch {
       // If decryption fails, return as-is (may be plaintext from older version)
     }
@@ -36,6 +52,10 @@ function decryptSensitiveData(provider: LlmProviderConfig): LlmProviderConfig {
   return decrypted;
 }
 
+/**
+ * Load providers with decrypted tokens (INTERNAL USE ONLY)
+ * WARNING: Do NOT send this data to the renderer process
+ */
 export function loadProviders(): LlmProviderConfig[] {
   try {
     if (existsSync(PROVIDERS_FILE)) {
@@ -44,6 +64,33 @@ export function loadProviders(): LlmProviderConfig[] {
       if (!Array.isArray(providers)) return [];
       // Decrypt sensitive data for each provider
       return providers.map(decryptSensitiveData);
+    }
+  } catch {
+    // Ignore missing or invalid providers file
+  }
+  return [];
+}
+
+/**
+ * Load providers WITHOUT tokens - SAFE to send to renderer process
+ * This function never decrypts tokens, ensuring they stay in main process
+ */
+export function loadProvidersSafe(): SafeProviderConfig[] {
+  try {
+    if (existsSync(PROVIDERS_FILE)) {
+      const raw = readFileSync(PROVIDERS_FILE, "utf8");
+      const providers = JSON.parse(raw) as LlmProviderConfig[];
+      if (!Array.isArray(providers)) return [];
+      // Convert to safe format without decrypting
+      return providers.map(p => ({
+        id: p.id,
+        name: p.name,
+        baseUrl: p.baseUrl,
+        defaultModel: p.defaultModel,
+        models: p.models,
+        hasToken: Boolean(p.authToken && p.authToken.length > 0),
+        isDefault: false
+      }));
     }
   } catch {
     // Ignore missing or invalid providers file
@@ -108,6 +155,60 @@ export function deleteProvider(providerId: string): boolean {
 export function getProvider(providerId: string): LlmProviderConfig | null {
   const providers = loadProviders();
   return providers.find((p) => p.id === providerId) || null;
+}
+
+/**
+ * Save provider from ProviderSavePayload (from renderer)
+ * Token is optional - if not provided, keeps existing token
+ * Returns SafeProviderConfig (without token) for IPC response
+ */
+export function saveProviderFromPayload(payload: ProviderSavePayload): SafeProviderConfig {
+  // Load existing providers
+  const providers = loadProviders();
+  const existingIndex = payload.id ? providers.findIndex((p) => p.id === payload.id) : -1;
+  const existingProvider = existingIndex >= 0 ? providers[existingIndex] : null;
+
+  // Build the provider config
+  const providerToSave: LlmProviderConfig = {
+    id: payload.id || randomUUID(),
+    name: payload.name,
+    baseUrl: payload.baseUrl,
+    // Keep existing token if not provided in payload
+    authToken: payload.authToken || existingProvider?.authToken || "",
+    defaultModel: payload.defaultModel,
+    models: payload.models
+  };
+
+  if (existingIndex >= 0) {
+    providers[existingIndex] = providerToSave;
+  } else {
+    providers.push(providerToSave);
+  }
+
+  // Encrypt and save
+  const encryptedProviders = providers.map(encryptSensitiveData);
+  writeFileSync(PROVIDERS_FILE, JSON.stringify(encryptedProviders, null, 2));
+
+  // Set restrictive file permissions
+  try {
+    chmodSync(PROVIDERS_FILE, 0o600);
+  } catch {
+    // Ignore permission errors
+  }
+
+  // Return safe config (without token)
+  return toSafeProvider(providerToSave);
+}
+
+/**
+ * Get environment variables for a provider by ID
+ * Decrypts token on-demand - ONLY for use with subprocess
+ * This function should ONLY be called from runner.ts when starting Claude
+ */
+export function getProviderEnvById(providerId: string): Record<string, string> | null {
+  const provider = getProvider(providerId);
+  if (!provider) return null;
+  return getProviderEnv(provider);
 }
 
 /**

@@ -1,6 +1,12 @@
 @import "tailwindcss";
 @import "highlight.js/styles/github.css";
 
+/* Theme CSS Variables - set by ThemeContext */
+:root {
+  --theme-sidebar-color: #FAF9F6;
+  --theme-workspace-color: #FFFFFF;
+}
+
 @theme {
   /* Surface colors */
   --color-surface: #FFFFFF;
@@ -64,6 +70,63 @@ body {
   color: var(--color-ink-900);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Dark mode body */
+.dark body,
+body.dark {
+  background-color: #0a0a0a;
+  color: #f5f5f5;
+}
+
+/* Dark mode overrides */
+.dark .bg-surface {
+  background-color: #1a1a1a;
+}
+
+.dark .bg-surface-secondary {
+  background-color: #262626;
+}
+
+.dark .bg-surface-tertiary {
+  background-color: #333333;
+}
+
+.dark .bg-surface-cream {
+  background-color: #0a0a0a;
+}
+
+.dark .text-ink-700,
+.dark .text-ink-800,
+.dark .text-ink-900 {
+  color: #f5f5f5;
+}
+
+.dark .text-muted {
+  color: #a0a0a0;
+}
+
+.dark .border-ink-900\/5,
+.dark .border-ink-900\/10 {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.dark .bg-white {
+  background-color: #1a1a1a;
+}
+
+.dark input,
+.dark select,
+.dark textarea {
+  background-color: #262626;
+  color: #f5f5f5;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.dark input:focus,
+.dark select:focus,
+.dark textarea:focus {
+  border-color: var(--color-accent);
 }
 
 hr {

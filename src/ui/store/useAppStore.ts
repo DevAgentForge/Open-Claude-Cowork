@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ServerEvent, SessionStatus, StreamMessage, LlmProviderConfig } from "../types";
+import type { ServerEvent, SessionStatus, StreamMessage, SafeProviderConfig } from "../types";
 
 export type PermissionRequest = {
   toolUseId: string;
@@ -30,7 +30,7 @@ interface AppState {
   sessionsLoaded: boolean;
   showStartModal: boolean;
   historyRequested: Set<string>;
-  providers: LlmProviderConfig[];
+  providers: SafeProviderConfig[];
   selectedProviderId: string | null;
   showProviderModal: boolean;
 
@@ -44,8 +44,8 @@ interface AppState {
   setSelectedProviderId: (id: string | null) => void;
   markHistoryRequested: (sessionId: string) => void;
   resolvePermissionRequest: (sessionId: string, toolUseId: string) => void;
-  setProviders: (providers: LlmProviderConfig[]) => void;
-  addOrUpdateProvider: (provider: LlmProviderConfig) => void;
+  setProviders: (providers: SafeProviderConfig[]) => void;
+  addOrUpdateProvider: (provider: SafeProviderConfig) => void;
   removeProvider: (providerId: string) => void;
   handleServerEvent: (event: ServerEvent) => void;
 }

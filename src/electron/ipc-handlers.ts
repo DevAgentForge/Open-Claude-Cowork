@@ -2,7 +2,7 @@ import { BrowserWindow } from "electron";
 import type { ClientEvent, ServerEvent } from "./types.js";
 import { runClaude, type RunnerHandle } from "./libs/runner.js";
 import { SessionStore } from "./libs/session-store.js";
-import { loadProviders, saveProvider, deleteProvider, getProvider } from "./libs/provider-config.js";
+import { loadProvidersSafe, saveProviderFromPayload, deleteProvider, getProviderEnvById, toSafeProvider, getProvider } from "./libs/provider-config.js";
 import { orchestratorAgent } from "./libs/orchestrator-agent.js";
 import { app } from "electron";
 import { join } from "path";
@@ -73,8 +73,8 @@ export function handleClientEvent(event: ClientEvent) {
       permissionMode: event.payload.permissionMode
     });
 
-    // Get provider configuration if providerId is provided
-    const provider = event.payload.providerId ? getProvider(event.payload.providerId) : null;
+    // Get provider env vars if providerId is provided (decryption happens here in main process)
+    const providerEnv = event.payload.providerId ? getProviderEnvById(event.payload.providerId) : null;
 
     sessions.updateSession(session.id, {
       status: "running",
@@ -98,7 +98,7 @@ export function handleClientEvent(event: ClientEvent) {
       onSessionUpdate: (updates) => {
         sessions.updateSession(session.id, updates);
       },
-      provider
+      providerEnv
     })
       .then((handle) => {
         runnerHandles.set(session.id, handle);
@@ -139,8 +139,8 @@ export function handleClientEvent(event: ClientEvent) {
       return;
     }
 
-    // Get provider configuration if providerId is provided
-    const provider = event.payload.providerId ? getProvider(event.payload.providerId) : null;
+    // Get provider env vars if providerId is provided (decryption happens here in main process)
+    const providerEnv = event.payload.providerId ? getProviderEnvById(event.payload.providerId) : null;
 
     sessions.updateSession(session.id, { status: "running", lastPrompt: event.payload.prompt });
     emit({
@@ -161,7 +161,7 @@ export function handleClientEvent(event: ClientEvent) {
       onSessionUpdate: (updates) => {
         sessions.updateSession(session.id, updates);
       },
-      provider
+      providerEnv
     })
       .then((handle) => {
         runnerHandles.set(session.id, handle);
@@ -231,8 +231,10 @@ export function handleClientEvent(event: ClientEvent) {
   }
 
   // Provider configuration handlers
+  // SECURITY: Always use SafeProviderConfig for IPC responses (no tokens)
   if (event.type === "provider.list") {
-    const providers = loadProviders();
+    // loadProvidersSafe() returns SafeProviderConfig[] - NO tokens
+    const providers = loadProvidersSafe();
     emit({
       type: "provider.list",
       payload: { providers }
@@ -241,7 +243,8 @@ export function handleClientEvent(event: ClientEvent) {
   }
 
   if (event.type === "provider.save") {
-    const savedProvider = saveProvider(event.payload.provider);
+    // saveProviderFromPayload handles token preservation and returns SafeProviderConfig
+    const savedProvider = saveProviderFromPayload(event.payload.provider);
     emit({
       type: "provider.saved",
       payload: { provider: savedProvider }
@@ -261,11 +264,12 @@ export function handleClientEvent(event: ClientEvent) {
   }
 
   if (event.type === "provider.get") {
+    // Return SafeProviderConfig (no token)
     const provider = getProvider(event.payload.providerId);
     if (provider) {
       emit({
         type: "provider.data",
-        payload: { provider }
+        payload: { provider: toSafeProvider(provider) }
       });
     }
     return;

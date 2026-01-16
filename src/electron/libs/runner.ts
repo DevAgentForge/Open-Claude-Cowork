@@ -1,8 +1,7 @@
 import { query, type SDKMessage, type PermissionResult } from "@anthropic-ai/claude-agent-sdk";
-import type { ServerEvent, LlmProviderConfig, PermissionMode } from "../types.js";
+import type { ServerEvent, PermissionMode } from "../types.js";
 import type { Session } from "./session-store.js";
 import { claudeCodePath, enhancedEnv } from "./util.js";
-import { getProviderEnv } from "./provider-config.js";
 
 export type RunnerOptions = {
   prompt: string;
@@ -10,7 +9,9 @@ export type RunnerOptions = {
   resumeSessionId?: string;
   onEvent: (event: ServerEvent) => void;
   onSessionUpdate?: (updates: Partial<Session>) => void;
-  provider?: LlmProviderConfig | null;
+  // SECURITY: providerEnv contains pre-decrypted env vars (including token)
+  // This is set by ipc-handlers.ts in the main process - tokens never leave main
+  providerEnv?: Record<string, string> | null;
 };
 
 export type RunnerHandle = {
@@ -114,15 +115,16 @@ export function createCanUseTool({
 }
 
 export async function runClaude(options: RunnerOptions): Promise<RunnerHandle> {
-  const { prompt, session, resumeSessionId, onEvent, onSessionUpdate, provider } = options;
+  const { prompt, session, resumeSessionId, onEvent, onSessionUpdate, providerEnv } = options;
   const abortController = new AbortController();
 
   // Get permission mode from session (default to "secure" for backward compatibility)
   const permissionMode: PermissionMode = session.permissionMode ?? "secure";
   const allowedTools = parseAllowedTools(session.allowedTools);
 
-  // Get custom environment variables from provider config, if provided
-  const customEnv = provider ? getProviderEnv(provider) : {};
+  // SECURITY: providerEnv is already prepared by ipc-handlers with decrypted token
+  // Tokens are decrypted on-demand in main process and passed here as env vars
+  const customEnv = providerEnv || {};
 
   const sendMessage = (message: SDKMessage) => {
     onEvent({
