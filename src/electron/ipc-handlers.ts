@@ -243,12 +243,21 @@ export function handleClientEvent(event: ClientEvent) {
   }
 
   if (event.type === "provider.save") {
-    // saveProviderFromPayload handles token preservation and returns SafeProviderConfig
-    const savedProvider = saveProviderFromPayload(event.payload.provider);
-    emit({
-      type: "provider.saved",
-      payload: { provider: savedProvider }
-    });
+    try {
+      // saveProviderFromPayload handles token preservation, URL validation, and returns SafeProviderConfig
+      const savedProvider = saveProviderFromPayload(event.payload.provider);
+      emit({
+        type: "provider.saved",
+        payload: { provider: savedProvider }
+      });
+    } catch (error) {
+      // Handle validation errors (SSRF prevention, encryption failures)
+      const message = error instanceof Error ? error.message : "Failed to save provider";
+      emit({
+        type: "runner.error",
+        payload: { message: `Provider save failed: ${message}` }
+      });
+    }
     return;
   }
 

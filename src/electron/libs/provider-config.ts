@@ -7,6 +7,47 @@ import { randomUUID } from "crypto";
 const PROVIDERS_FILE = join(app.getPath("userData"), "providers.json");
 
 /**
+ * Validate provider baseUrl to prevent SSRF attacks (CWE-918)
+ * Only allows HTTP/HTTPS URLs to public endpoints
+ */
+export function validateProviderUrl(url: string): { valid: boolean; error?: string } {
+  try {
+    const parsed = new URL(url);
+
+    // Only allow HTTP and HTTPS protocols
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return { valid: false, error: "Only HTTP/HTTPS URLs are allowed" };
+    }
+
+    const hostname = parsed.hostname.toLowerCase();
+
+    // Block internal/private IP ranges (SSRF prevention)
+    const blockedPatterns = [
+      /^localhost$/,
+      /^127\./,
+      /^10\./,
+      /^172\.(1[6-9]|2[0-9]|3[01])\./,
+      /^192\.168\./,
+      /^169\.254\./, // Link-local
+      /^0\./, // Current network
+      /^::1$/, // IPv6 localhost
+      /^fc00:/i, // IPv6 private
+      /^fe80:/i, // IPv6 link-local
+    ];
+
+    for (const pattern of blockedPatterns) {
+      if (pattern.test(hostname)) {
+        return { valid: false, error: "Internal/private URLs are not allowed" };
+      }
+    }
+
+    return { valid: true };
+  } catch {
+    return { valid: false, error: "Invalid URL format" };
+  }
+}
+
+/**
  * Convert internal LlmProviderConfig to SafeProviderConfig (NO tokens)
  * This is safe to send to the renderer process via IPC
  */
@@ -24,14 +65,21 @@ export function toSafeProvider(provider: LlmProviderConfig): SafeProviderConfig 
 
 /**
  * Encrypt sensitive fields before storage (CWE-200 mitigation)
+ * SECURITY: Throws error on encryption failure - NEVER store plaintext tokens
  */
 function encryptSensitiveData(provider: LlmProviderConfig): LlmProviderConfig {
   const encrypted = { ...provider };
   if (encrypted.authToken) {
+    // Check if encryption is available on this system
+    if (!safeStorage.isEncryptionAvailable()) {
+      console.error("[SECURITY] Token encryption not available on this system");
+      throw new Error("Token encryption not available - cannot securely store credentials");
+    }
     try {
       encrypted.authToken = safeStorage.encryptString(encrypted.authToken).toString("base64");
-    } catch {
-      // If encryption fails, keep original (not ideal but don't break functionality)
+    } catch (error) {
+      console.error("[SECURITY] Token encryption failed:", error);
+      throw new Error("Failed to encrypt token - refusing to store plaintext credentials");
     }
   }
   return encrypted;
@@ -39,14 +87,27 @@ function encryptSensitiveData(provider: LlmProviderConfig): LlmProviderConfig {
 
 /**
  * Decrypt sensitive fields after reading from storage
+ * For backward compatibility, allows plaintext tokens from older versions
  */
 function decryptSensitiveData(provider: LlmProviderConfig): LlmProviderConfig {
   const decrypted = { ...provider };
   if (decrypted.authToken) {
+    // Check if token looks like base64-encoded encrypted data
+    const looksEncrypted = /^[A-Za-z0-9+/]+=*$/.test(decrypted.authToken) &&
+                          decrypted.authToken.length > 50; // Encrypted tokens are longer
+
+    if (!looksEncrypted) {
+      // Legacy plaintext token - log warning for migration awareness
+      console.warn(`[SECURITY] Provider ${provider.id} has plaintext token - will be encrypted on next save`);
+      return decrypted;
+    }
+
     try {
       decrypted.authToken = safeStorage.decryptString(Buffer.from(decrypted.authToken, "base64"));
-    } catch {
-      // If decryption fails, return as-is (may be plaintext from older version)
+    } catch (error) {
+      // Decryption failed - might be corrupted or legacy format
+      console.warn(`[SECURITY] Failed to decrypt token for provider ${provider.id}:`, error);
+      // Keep as-is for backward compatibility, will be re-encrypted on next save
     }
   }
   return decrypted;
@@ -161,8 +222,17 @@ export function getProvider(providerId: string): LlmProviderConfig | null {
  * Save provider from ProviderSavePayload (from renderer)
  * Token is optional - if not provided, keeps existing token
  * Returns SafeProviderConfig (without token) for IPC response
+ * @throws Error if baseUrl fails SSRF validation or encryption fails
  */
 export function saveProviderFromPayload(payload: ProviderSavePayload): SafeProviderConfig {
+  // Validate URL to prevent SSRF (CWE-918)
+  if (payload.baseUrl) {
+    const urlValidation = validateProviderUrl(payload.baseUrl);
+    if (!urlValidation.valid) {
+      throw new Error(`Invalid provider URL: ${urlValidation.error}`);
+    }
+  }
+
   // Load existing providers
   const providers = loadProviders();
   const existingIndex = payload.id ? providers.findIndex((p) => p.id === payload.id) : -1;

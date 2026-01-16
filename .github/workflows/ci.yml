@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main, fix/electron-windows]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Run ESLint
+        run: bun run lint
+        continue-on-error: true
+
+      - name: Transpile Electron
+        run: bun run transpile:electron
+
+      - name: Build React
+        run: bun run build
+
+  typecheck:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: TypeScript check (Electron)
+        run: bun run transpile:electron
+
+      - name: TypeScript check (React)
+        run: bunx tsc --noEmit --project src/ui/tsconfig.json
