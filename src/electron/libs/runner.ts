@@ -3,6 +3,12 @@ import type { ServerEvent, PermissionMode } from "../types.js";
 import type { Session } from "./session-store.js";
 import { claudeCodePath, enhancedEnv } from "./util.js";
 
+/**
+ * Timeout for permission requests (5 minutes)
+ * Prevents indefinite waiting if user doesn't respond
+ */
+const PERMISSION_TIMEOUT_MS = 5 * 60 * 1000;
+
 export type RunnerOptions = {
   prompt: string;
   session: Session;
@@ -95,11 +101,19 @@ export function createCanUseTool({
     sendPermissionRequest(toolUseId, toolName, input);
 
     return new Promise<PermissionResult>((resolve) => {
+      // Set timeout to prevent indefinite waiting
+      const timeoutId = setTimeout(() => {
+        session.pendingPermissions.delete(toolUseId);
+        console.warn(`[Runner] Permission request timed out for tool ${toolName} (${toolUseId})`);
+        resolve({ behavior: "deny", message: "Permission request timed out after 5 minutes" });
+      }, PERMISSION_TIMEOUT_MS);
+
       session.pendingPermissions.set(toolUseId, {
         toolUseId,
         toolName,
         input,
         resolve: (result) => {
+          clearTimeout(timeoutId);
           session.pendingPermissions.delete(toolUseId);
           resolve(result as PermissionResult);
         }
@@ -107,6 +121,7 @@ export function createCanUseTool({
 
       // Handle abort
       signal.addEventListener("abort", () => {
+        clearTimeout(timeoutId);
         session.pendingPermissions.delete(toolUseId);
         resolve({ behavior: "deny", message: "Session aborted" });
       });

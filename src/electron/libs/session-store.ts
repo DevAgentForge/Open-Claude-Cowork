@@ -273,6 +273,7 @@ export class SessionStore {
   /**
    * Sanitize path to prevent path traversal attacks (CWE-22)
    * Validates that the path is a real directory without dangerous sequences
+   * Note: Quotes are allowed in paths (valid in Unix/Windows filenames)
    */
   private sanitizePath(inputPath: string): string {
     // 1. Detect null bytes (CWE-626)
@@ -285,10 +286,11 @@ export class SessionStore {
       throw new Error("Invalid path: path traversal sequences not allowed");
     }
 
-    // 3. Check for dangerous shell characters (CWE-78)
-    const dangerousChars = /[;&|`$<>'"]/;
-    if (dangerousChars.test(inputPath)) {
-      throw new Error("Invalid path: contains dangerous shell characters");
+    // 3. Check for dangerous shell metacharacters (CWE-78)
+    // Note: Quotes (' ") are valid in filesystem paths, only block shell operators
+    const dangerousShellChars = /[;&|`$<>]/;
+    if (dangerousShellChars.test(inputPath)) {
+      throw new Error("Invalid path: contains dangerous shell metacharacters");
     }
 
     // 4. Normalize and resolve to absolute path

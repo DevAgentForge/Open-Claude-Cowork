@@ -143,12 +143,20 @@ export class SettingsManager {
       }
     }
 
-    // Validate hooks (basic structure check)
+    // Validate hooks (deep structure check - CWE-20)
     if (obj.hooks !== undefined) {
       if (typeof obj.hooks !== "object" || obj.hooks === null) {
         throw new Error("hooks must be an object");
       }
-      validated.hooks = obj.hooks as Record<string, HookConfig[]>;
+      validated.hooks = {};
+      for (const [event, eventHooks] of Object.entries(obj.hooks as Record<string, unknown>)) {
+        if (Array.isArray(eventHooks)) {
+          const validHooks = eventHooks.filter(h => this.isValidHookConfig(h));
+          if (validHooks.length > 0) {
+            validated.hooks[event] = validHooks as HookConfig[];
+          }
+        }
+      }
     }
 
     // Validate enabledPlugins (must be Record<string, boolean>)
@@ -202,6 +210,39 @@ export class SettingsManager {
     if (typeof c.command !== "string") return false;
     if (c.args !== undefined && !Array.isArray(c.args)) return false;
     if (c.env !== undefined && (typeof c.env !== "object" || c.env === null)) return false;
+    return true;
+  }
+
+  /**
+   * Validate hook configuration structure (CWE-20)
+   * @param hook - The hook object to validate
+   * @returns true if valid HookConfig structure
+   */
+  private isValidHookConfig(hook: unknown): hook is HookConfig {
+    if (typeof hook !== "object" || hook === null) return false;
+    const h = hook as Record<string, unknown>;
+
+    // matcher must be a string
+    if (typeof h.matcher !== "string") return false;
+
+    // hooks must be an array
+    if (!Array.isArray(h.hooks)) return false;
+
+    // Validate each hook item
+    for (const item of h.hooks) {
+      if (typeof item !== "object" || item === null) return false;
+      const i = item as Record<string, unknown>;
+
+      // command is required and must be string
+      if (typeof i.command !== "string") return false;
+
+      // type must be "command"
+      if (i.type !== "command") return false;
+
+      // timeout is optional but must be number if present
+      if (i.timeout !== undefined && typeof i.timeout !== "number") return false;
+    }
+
     return true;
   }
 
@@ -312,7 +353,14 @@ export class SettingsManager {
     };
   }
 
+  /**
+   * Reset singleton instance. Only for testing purposes.
+   * @internal Do not use in production code
+   */
   static resetInstance(): void {
+    if (process.env.NODE_ENV !== "test") {
+      console.warn("[SettingsManager] resetInstance() called outside test environment - this may cause state inconsistencies");
+    }
     SettingsManager.instance = null;
   }
 }

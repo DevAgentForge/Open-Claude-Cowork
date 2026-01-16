@@ -120,8 +120,38 @@ This means your custom configuration takes precedence over the default Claude Co
 ## Security Notes
 
 - API keys are stored locally in `~/Library/Application Support/Agent Cowork/providers.json` (macOS)
+- API tokens are encrypted using Electron's `safeStorage` API before being written to disk
 - Never share your configuration files containing API keys
 - Consider using environment variables or secret management for production use
+
+## Local Development
+
+By default, Claude Cowork blocks localhost and private IP addresses (127.0.0.1, 192.168.x.x, etc.) as provider URLs to prevent SSRF attacks.
+
+For local development with proxies like LiteLLM, enable local providers by setting the environment variable:
+
+```bash
+# macOS/Linux
+export CLAUDE_COWORK_ALLOW_LOCAL_PROVIDERS=true
+
+# Windows (PowerShell)
+$env:CLAUDE_COWORK_ALLOW_LOCAL_PROVIDERS = "true"
+
+# Or when launching the app
+CLAUDE_COWORK_ALLOW_LOCAL_PROVIDERS=true ./Claude-Cowork
+```
+
+**WARNING:** Only enable this in development environments. Do not use in production.
+
+Once enabled, you can configure local providers like:
+
+```json
+{
+  "name": "LiteLLM Local",
+  "baseUrl": "http://localhost:4000/v1",
+  "authToken": "your-local-token"
+}
+```
 
 ## Troubleshooting
 

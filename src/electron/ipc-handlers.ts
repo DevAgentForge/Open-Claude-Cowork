@@ -11,6 +11,39 @@ const DB_PATH = join(app.getPath("userData"), "sessions.db");
 const sessions = new SessionStore(DB_PATH);
 const runnerHandles = new Map<string, RunnerHandle>();
 
+/**
+ * Simple rate limiter to prevent DoS from renderer process
+ * @internal
+ */
+const rateLimitState = new Map<string, { count: number; resetTime: number }>();
+const RATE_LIMIT = 100; // max requests per window
+const RATE_WINDOW_MS = 60000; // 1 minute window
+
+/**
+ * Check if request should be rate limited
+ * @param eventType - The type of IPC event
+ * @returns true if allowed, false if rate limited
+ */
+function checkRateLimit(eventType: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitState.get(eventType);
+
+  // Reset or create entry if window expired
+  if (!entry || now > entry.resetTime) {
+    rateLimitState.set(eventType, { count: 1, resetTime: now + RATE_WINDOW_MS });
+    return true;
+  }
+
+  // Check limit
+  if (entry.count >= RATE_LIMIT) {
+    console.warn(`[IPC] Rate limit exceeded for ${eventType} (${entry.count} requests in window)`);
+    return false;
+  }
+
+  entry.count++;
+  return true;
+}
+
 function broadcast(event: ServerEvent) {
   const payload = JSON.stringify(event);
   const windows = BrowserWindow.getAllWindows();
@@ -36,6 +69,11 @@ function emit(event: ServerEvent) {
 }
 
 export function handleClientEvent(event: ClientEvent) {
+  // Rate limit check to prevent DoS
+  if (!checkRateLimit(event.type)) {
+    return; // Silently drop rate-limited requests
+  }
+
   if (event.type === "session.list") {
     emit({
       type: "session.list",

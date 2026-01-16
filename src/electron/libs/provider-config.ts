@@ -7,6 +7,19 @@ import { randomUUID } from "crypto";
 const PROVIDERS_FILE = join(app.getPath("userData"), "providers.json");
 
 /**
+ * Magic prefix for encrypted tokens (deterministic detection)
+ * Format: ENC:v1:<base64-encrypted-data>
+ * @internal
+ */
+const ENCRYPTED_TOKEN_PREFIX = "ENC:v1:";
+
+/**
+ * Allow localhost/private IPs for local development (LiteLLM, etc.)
+ * Set CLAUDE_COWORK_ALLOW_LOCAL_PROVIDERS=true to enable
+ */
+const ALLOW_LOCAL_PROVIDERS = process.env.CLAUDE_COWORK_ALLOW_LOCAL_PROVIDERS === "true";
+
+/**
  * Validate provider baseUrl to prevent SSRF attacks (CWE-918)
  * Only allows HTTP/HTTPS URLs to public endpoints
  */
@@ -21,7 +34,7 @@ export function validateProviderUrl(url: string): { valid: boolean; error?: stri
 
     const hostname = parsed.hostname.toLowerCase();
 
-    // Block internal/private IP ranges (SSRF prevention)
+    // Block internal/private IP ranges (SSRF prevention - CWE-918)
     const blockedPatterns = [
       /^localhost$/,
       /^127\./,
@@ -35,9 +48,17 @@ export function validateProviderUrl(url: string): { valid: boolean; error?: stri
       /^fe80:/i, // IPv6 link-local
     ];
 
+    // Allow localhost/private IPs if explicitly enabled (for local development)
+    if (ALLOW_LOCAL_PROVIDERS) {
+      return { valid: true };
+    }
+
     for (const pattern of blockedPatterns) {
       if (pattern.test(hostname)) {
-        return { valid: false, error: "Internal/private URLs are not allowed" };
+        return {
+          valid: false,
+          error: "Internal/private URLs are not allowed. Set CLAUDE_COWORK_ALLOW_LOCAL_PROVIDERS=true for local development."
+        };
       }
     }
 
@@ -65,18 +86,25 @@ export function toSafeProvider(provider: LlmProviderConfig): SafeProviderConfig 
 
 /**
  * Encrypt sensitive fields before storage (CWE-200 mitigation)
- * SECURITY: Throws error on encryption failure - NEVER store plaintext tokens
+ * SECURITY [CWE-200]: Throws error on encryption failure - NEVER store plaintext tokens
+ * Uses deterministic prefix (ENC:v1:) for reliable encrypted token detection
  */
 function encryptSensitiveData(provider: LlmProviderConfig): LlmProviderConfig {
   const encrypted = { ...provider };
   if (encrypted.authToken) {
+    // Skip if already encrypted with our prefix
+    if (encrypted.authToken.startsWith(ENCRYPTED_TOKEN_PREFIX)) {
+      return encrypted;
+    }
+
     // Check if encryption is available on this system
     if (!safeStorage.isEncryptionAvailable()) {
       console.error("[SECURITY] Token encryption not available on this system");
       throw new Error("Token encryption not available - cannot securely store credentials");
     }
     try {
-      encrypted.authToken = safeStorage.encryptString(encrypted.authToken).toString("base64");
+      const encryptedBuffer = safeStorage.encryptString(encrypted.authToken);
+      encrypted.authToken = ENCRYPTED_TOKEN_PREFIX + encryptedBuffer.toString("base64");
     } catch (error) {
       console.error("[SECURITY] Token encryption failed:", error);
       throw new Error("Failed to encrypt token - refusing to store plaintext credentials");
@@ -86,45 +114,64 @@ function encryptSensitiveData(provider: LlmProviderConfig): LlmProviderConfig {
 }
 
 /**
+ * Check if token is in legacy encrypted format (heuristic for migration only)
+ * @internal
+ */
+function isLegacyEncryptedToken(token: string): boolean {
+  // Legacy format: base64 without prefix, typically >100 chars
+  return /^[A-Za-z0-9+/]+=*$/.test(token) && token.length > 100;
+}
+
+/**
  * Decrypt sensitive fields after reading from storage
- * For backward compatibility, allows plaintext tokens from older versions
+ * SECURITY [CWE-200]: Uses deterministic prefix for reliable detection
+ * For backward compatibility, migrates legacy encrypted tokens
  */
 function decryptSensitiveData(provider: LlmProviderConfig): LlmProviderConfig {
   const decrypted = { ...provider };
   if (decrypted.authToken) {
-    // Check if token looks like base64-encoded encrypted data
-    const looksEncrypted = /^[A-Za-z0-9+/]+=*$/.test(decrypted.authToken) &&
-                          decrypted.authToken.length > 50; // Encrypted tokens are longer
-
-    if (!looksEncrypted) {
-      // Legacy plaintext token - log warning for migration awareness
-      console.warn(`[SECURITY] Provider ${provider.id} has plaintext token - will be encrypted on next save`);
+    // New format: deterministic prefix
+    if (decrypted.authToken.startsWith(ENCRYPTED_TOKEN_PREFIX)) {
+      try {
+        const base64Data = decrypted.authToken.slice(ENCRYPTED_TOKEN_PREFIX.length);
+        decrypted.authToken = safeStorage.decryptString(Buffer.from(base64Data, "base64"));
+      } catch (error) {
+        console.error(`[SECURITY] Failed to decrypt token for provider ${provider.id}:`, error);
+        throw new Error("Failed to decrypt token - data may be corrupted");
+      }
       return decrypted;
     }
 
-    try {
-      decrypted.authToken = safeStorage.decryptString(Buffer.from(decrypted.authToken, "base64"));
-    } catch (error) {
-      // Decryption failed - might be corrupted or legacy format
-      console.warn(`[SECURITY] Failed to decrypt token for provider ${provider.id}:`, error);
-      // Keep as-is for backward compatibility, will be re-encrypted on next save
+    // Legacy format: heuristic detection (for migration)
+    if (isLegacyEncryptedToken(decrypted.authToken)) {
+      try {
+        decrypted.authToken = safeStorage.decryptString(Buffer.from(decrypted.authToken, "base64"));
+        console.info(`[SECURITY] Migrated legacy encrypted token for provider ${provider.id}`);
+      } catch {
+        // Failed to decrypt - might be a very long plaintext token
+        console.warn(`[SECURITY] Provider ${provider.id} has unrecognized token format - treating as plaintext`);
+      }
+      return decrypted;
     }
+
+    // Plaintext token - will be encrypted on next save
+    console.warn(`[SECURITY] Provider ${provider.id} has plaintext token - will be encrypted on next save`);
   }
   return decrypted;
 }
 
 /**
- * Load providers with decrypted tokens (INTERNAL USE ONLY)
- * WARNING: Do NOT send this data to the renderer process
+ * Read raw providers from file (internal helper to avoid duplication)
+ * @returns Raw provider configs without decryption
+ * @internal
  */
-export function loadProviders(): LlmProviderConfig[] {
+function readProvidersFile(): LlmProviderConfig[] {
   try {
     if (existsSync(PROVIDERS_FILE)) {
       const raw = readFileSync(PROVIDERS_FILE, "utf8");
-      const providers = JSON.parse(raw) as LlmProviderConfig[];
+      const providers = JSON.parse(raw);
       if (!Array.isArray(providers)) return [];
-      // Decrypt sensitive data for each provider
-      return providers.map(decryptSensitiveData);
+      return providers as LlmProviderConfig[];
     }
   } catch {
     // Ignore missing or invalid providers file
@@ -133,30 +180,29 @@ export function loadProviders(): LlmProviderConfig[] {
 }
 
 /**
+ * Load providers with decrypted tokens (INTERNAL USE ONLY)
+ * WARNING: Do NOT send this data to the renderer process
+ * @returns Provider configs with decrypted tokens
+ */
+export function loadProviders(): LlmProviderConfig[] {
+  return readProvidersFile().map(decryptSensitiveData);
+}
+
+/**
  * Load providers WITHOUT tokens - SAFE to send to renderer process
  * This function never decrypts tokens, ensuring they stay in main process
+ * @returns Safe provider configs without sensitive data
  */
 export function loadProvidersSafe(): SafeProviderConfig[] {
-  try {
-    if (existsSync(PROVIDERS_FILE)) {
-      const raw = readFileSync(PROVIDERS_FILE, "utf8");
-      const providers = JSON.parse(raw) as LlmProviderConfig[];
-      if (!Array.isArray(providers)) return [];
-      // Convert to safe format without decrypting
-      return providers.map(p => ({
-        id: p.id,
-        name: p.name,
-        baseUrl: p.baseUrl,
-        defaultModel: p.defaultModel,
-        models: p.models,
-        hasToken: Boolean(p.authToken && p.authToken.length > 0),
-        isDefault: false
-      }));
-    }
-  } catch {
-    // Ignore missing or invalid providers file
-  }
-  return [];
+  return readProvidersFile().map(p => ({
+    id: p.id,
+    name: p.name,
+    baseUrl: p.baseUrl,
+    defaultModel: p.defaultModel,
+    models: p.models,
+    hasToken: Boolean(p.authToken && p.authToken.length > 0),
+    isDefault: false
+  }));
 }
 
 export function saveProvider(provider: LlmProviderConfig): LlmProviderConfig {
@@ -219,10 +265,33 @@ export function getProvider(providerId: string): LlmProviderConfig | null {
 }
 
 /**
+ * Validate models configuration
+ * @param models - The models object to validate
+ * @returns true if valid, false otherwise
+ */
+function validateModelConfig(models?: { opus?: string; sonnet?: string; haiku?: string }): boolean {
+  if (!models) return true;
+  if (typeof models !== "object") return false;
+
+  const validKeys = ["opus", "sonnet", "haiku"];
+  for (const [key, value] of Object.entries(models)) {
+    // Only allow known keys
+    if (!validKeys.includes(key)) return false;
+    // Values must be string or undefined
+    if (value !== undefined && typeof value !== "string") return false;
+    // Reasonable length limit for model names
+    if (typeof value === "string" && value.length > 100) return false;
+  }
+  return true;
+}
+
+/**
  * Save provider from ProviderSavePayload (from renderer)
  * Token is optional - if not provided, keeps existing token
  * Returns SafeProviderConfig (without token) for IPC response
- * @throws Error if baseUrl fails SSRF validation or encryption fails
+ * @param payload - The provider data from renderer
+ * @returns SafeProviderConfig without sensitive data
+ * @throws Error if baseUrl fails SSRF validation, models are invalid, or encryption fails
  */
 export function saveProviderFromPayload(payload: ProviderSavePayload): SafeProviderConfig {
   // Validate URL to prevent SSRF (CWE-918)
@@ -231,6 +300,11 @@ export function saveProviderFromPayload(payload: ProviderSavePayload): SafeProvi
     if (!urlValidation.valid) {
       throw new Error(`Invalid provider URL: ${urlValidation.error}`);
     }
+  }
+
+  // Validate models configuration (CWE-20)
+  if (!validateModelConfig(payload.models)) {
+    throw new Error("Invalid models configuration: must be {opus?: string, sonnet?: string, haiku?: string}");
   }
 
   // Load existing providers
