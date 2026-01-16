@@ -330,6 +330,18 @@ export function handleClientEvent(event: ClientEvent) {
 }
 
 /**
+ * Cleanup all running sessions
+ * Should be called during app shutdown
+ */
+export function cleanupAllSessions(): void {
+  for (const [, handle] of runnerHandles) {
+    handle.abort();
+  }
+  runnerHandles.clear();
+  sessions.close();
+}
+
+/**
  * Initialize IPC handlers and orchestrator
  * Should be called once during app startup
  */

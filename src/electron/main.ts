@@ -2,7 +2,7 @@ import { app, ipcMain, dialog } from "electron"
 import { ipcMainHandle } from "./util.js";
 import { getPreloadPath } from "./pathResolver.js";
 import { getStaticData, pollResources, cleanupPolling } from "./test.js";
-import { handleClientEvent, sessions, initializeHandlers } from "./ipc-handlers.js";
+import { handleClientEvent, sessions, initializeHandlers, cleanupAllSessions } from "./ipc-handlers.js";
 import { generateSessionTitle } from "./libs/util.js";
 import type { ClientEvent } from "./types.js";
 import { WindowManager } from "./window-manager.js";
@@ -97,12 +97,14 @@ app.on("ready", async () => {
 app.on("window-all-closed", () => {
     if (process.platform !== "darwin") {
         cleanupPolling(pollingIntervalId);
+        cleanupAllSessions();
         app.quit();
     }
 });
 
 app.on("before-quit", () => {
     cleanupPolling(pollingIntervalId);
+    cleanupAllSessions();
 });
 
 app.on("activate", () => {

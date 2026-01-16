@@ -345,4 +345,8 @@ export class SessionStore {
       this.sessions.set(session.id, session);
     }
   }
+
+  close(): void {
+    this.db.close();
+  }
 }

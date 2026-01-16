@@ -46,9 +46,15 @@ export function pollResources(mainWindow: BrowserWindow): ReturnType<typeof setI
 export function cleanupPolling(intervalId: ReturnType<typeof setInterval> | null): void {
     if (intervalId) {
         clearInterval(intervalId);
-        intervalId = null;
     }
     // Also clear the active interval reference
+    if (activePollingInterval) {
+        clearInterval(activePollingInterval);
+        activePollingInterval = null;
+    }
+}
+
+export function stopPolling(): void {
     if (activePollingInterval) {
         clearInterval(activePollingInterval);
         activePollingInterval = null;
@@ -87,5 +93,3 @@ function getStorageData() {
         usage: 1 - free / total
     }
 }
-
-
