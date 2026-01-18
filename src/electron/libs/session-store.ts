@@ -3,6 +3,15 @@ import { resolve, normalize } from "path";
 import { existsSync } from "fs";
 import type { SessionStatus, StreamMessage, PermissionMode } from "../types.js";
 
+/**
+ * Sanitize value for safe logging - prevents log injection (CWE-117)
+ * @internal
+ */
+function sanitizeForLog(value: string): string {
+  // eslint-disable-next-line no-control-regex
+  return value.replace(/[\x00-\x1f\x7f]/g, "_");
+}
+
 export type PendingPermission = {
   toolUseId: string;
   toolName: string;
@@ -35,6 +44,83 @@ export type StoredSession = {
   createdAt: number;
   updatedAt: number;
 };
+
+/**
+ * Parse a message row from the database
+ *
+ * @param row - Database row containing message data
+ * @returns Parsed StreamMessage
+ * @throws Error if row is invalid or parsing fails
+ *
+ * @internal
+ */
+function parseMessageRow(row: Record<string, unknown>): StreamMessage {
+  // Validate row structure
+  if (!row) {
+    throw new Error("Invalid message row: row is null or undefined");
+  }
+
+  if (!row.data) {
+    throw new Error("Invalid message row: missing 'data' field");
+  }
+
+  // Validate data is a string before parsing
+  if (typeof row.data !== "string") {
+    throw new Error("Invalid message row: 'data' field must be a string");
+  }
+
+  // Parse JSON
+  let data: unknown;
+  try {
+    data = JSON.parse(row.data);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to parse message data: ${errorMessage}`);
+  }
+
+  // Validate parsed data is an object
+  if (!data || typeof data !== "object") {
+    throw new Error("Invalid message: parsed data is not an object");
+  }
+
+  return data as StreamMessage;
+}
+
+/**
+ * Parse multiple message rows
+ *
+ * @param rows - Array of database rows
+ * @returns Array of parsed StreamMessages
+ *
+ * @internal
+ */
+function parseMessageRows(rows: Array<Record<string, unknown>>): StreamMessage[] {
+  const messages: StreamMessage[] = [];
+  const errors: Array<{ index: number; error: string }> = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    try {
+      messages.push(parseMessageRow(rows[i]));
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      errors.push({ index: i, error: errorMessage });
+
+      console.warn(
+        `[SessionStore] Failed to parse message at index ${i}`,
+        { error: errorMessage }
+      );
+    }
+  }
+
+  if (errors.length > 0) {
+    console.warn(
+      `[SessionStore] Failed to parse ${errors.length} messages out of ${rows.length}`,
+      { errors }
+    );
+  }
+
+  return messages;
+}
 
 export type SessionHistory = {
   session: StoredSession;
@@ -139,12 +225,13 @@ export class SessionStore {
       .get(id) as Record<string, unknown> | undefined;
     if (!sessionRow) return null;
 
-    const messages = (this.db
-      .prepare(
-        `select data from messages where session_id = ? order by created_at asc`
-      )
-      .all(id) as Array<Record<string, unknown>>)
-      .map((row) => JSON.parse(String(row.data)) as StreamMessage);
+    const messages = parseMessageRows(
+      this.db
+        .prepare(
+          `select data from messages where session_id = ? order by created_at asc`
+        )
+        .all(id) as Array<Record<string, unknown>>
+    );
 
     return {
       session: {
@@ -318,15 +405,35 @@ export class SessionStore {
          from sessions`
       )
       .all();
+
+    let invalidPathCount = 0;
+    const invalidSessionIds: string[] = [];
+
     for (const row of rows as Array<Record<string, unknown>>) {
       // Re-validate cwd on load (security: CWE-22)
-      // If path is invalid/deleted, set to undefined rather than crash
+      // If path is invalid/deleted, set to undefined and log the issue
       let validatedCwd: string | undefined;
+      let pathLoadError: Error | null = null;
+      let originalCwd: string | null = null;
+
       if (row.cwd) {
+        originalCwd = String(row.cwd);
         try {
-          validatedCwd = this.sanitizePath(String(row.cwd));
-        } catch {
-          // Path no longer valid (deleted/moved), clear it
+          validatedCwd = this.sanitizePath(originalCwd);
+        } catch (error) {
+          // Log the error for debugging but don't crash
+          // The path may have been deleted, moved, or had permissions changed
+          pathLoadError = error instanceof Error ? error : new Error(String(error));
+
+          console.warn(
+            `[SessionStore] Session ${String(row.id)} has invalid cwd path, skipping validation`,
+            {
+              sessionId: String(row.id),
+              originalPath: sanitizeForLog(originalCwd),
+              error: sanitizeForLog(pathLoadError.message)
+            }
+          );
+
           validatedCwd = undefined;
         }
       }
@@ -337,12 +444,29 @@ export class SessionStore {
         claudeSessionId: row.claude_session_id ? String(row.claude_session_id) : undefined,
         status: row.status as SessionStatus,
         cwd: validatedCwd,
+        // Track if this session has an invalid cwd
         allowedTools: row.allowed_tools ? String(row.allowed_tools) : undefined,
         lastPrompt: row.last_prompt ? String(row.last_prompt) : undefined,
         permissionMode: row.permission_mode ? (row.permission_mode as PermissionMode) : undefined,
         pendingPermissions: new Map()
       };
+
+      // If path was invalid, mark session as needing attention
+      if (pathLoadError) {
+        session.status = "error";
+        invalidPathCount++;
+        invalidSessionIds.push(session.id);
+      }
+
       this.sessions.set(session.id, session);
+    }
+
+    // Log summary of any path issues
+    if (invalidPathCount > 0) {
+      console.warn(
+        `[SessionStore] Loaded ${rows.length} sessions, ${invalidPathCount} had invalid cwd paths`,
+        { invalidSessionIds }
+      );
     }
   }
 

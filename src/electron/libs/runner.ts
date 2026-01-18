@@ -3,15 +3,44 @@ import type { ServerEvent, PermissionMode } from "../types.js";
 import type { Session } from "./session-store.js";
 import { claudeCodePath, enhancedEnv } from "./util.js";
 import { settingsManager } from "./settings-manager.js";
-import { existsSync } from "fs";
-import { join } from "path";
+import { existsSync, realpathSync } from "fs";
+import { join, relative, sep } from "path";
 import { homedir } from "os";
 
 /**
- * Timeout for permission requests (5 minutes)
- * Prevents indefinite waiting if user doesn't respond
+ * Configuration for pending permissions management
+ * Prevents memory leaks from unbounded Map growth
  */
-const PERMISSION_TIMEOUT_MS = 5 * 60 * 1000;
+interface PendingPermissionsConfig {
+  /** Maximum number of pending permissions before forcing cleanup */
+  maxPendingPermissions: number;
+  /** Timeout for permission requests in milliseconds */
+  permissionTimeoutMs: number;
+  /** Interval for periodic cleanup of stale entries */
+  cleanupIntervalMs: number;
+  /** Age threshold for considering an entry stale */
+  staleThresholdMs: number;
+}
+
+const DEFAULT_PENDING_PERMISSIONS_CONFIG: PendingPermissionsConfig = {
+  maxPendingPermissions: 100,
+  permissionTimeoutMs: 5 * 60 * 1000, // 5 minutes
+  cleanupIntervalMs: 60 * 1000, // 1 minute
+  staleThresholdMs: 10 * 60 * 1000 // 10 minutes
+};
+
+/**
+ * Entry for tracking pending permission requests
+ * @internal
+ */
+interface PendingPermissionEntry {
+  toolUseId: string;
+  toolName: string;
+  input: unknown;
+  resolve: (result: PermissionResult) => void;
+  createdAt: number;
+  timeoutId: ReturnType<typeof setTimeout>;
+}
 
 export type RunnerOptions = {
   prompt: string;
@@ -62,6 +91,7 @@ function getCustomAgents(): Record<string, AgentDefinition> {
 
 /**
  * Get local plugins from ~/.claude/plugins/ directory
+ * SECURITY: Validates paths to prevent path traversal attacks (CWE-22)
  */
 function getLocalPlugins(): SdkPluginConfig[] {
   const plugins: SdkPluginConfig[] = [];
@@ -78,9 +108,25 @@ function getLocalPlugins(): SdkPluginConfig[] {
   for (const [name, config] of enabledPlugins) {
     if (config.enabled) {
       const pluginPath = join(pluginsDir, name);
+      // SECURITY: Validate path is within pluginsDir to prevent path traversal (CWE-22)
+      // Use realpathSync + relative to prevent symlink/prefix bypass
       if (existsSync(pluginPath)) {
-        plugins.push({ type: "local", path: pluginPath });
-        console.log(`[Runner] Adding plugin: ${name} from ${pluginPath}`);
+        let resolvedPluginPath: string;
+        let resolvedPluginsDir: string;
+        try {
+          resolvedPluginPath = realpathSync(pluginPath);
+          resolvedPluginsDir = realpathSync(pluginsDir);
+        } catch {
+          // If realpath fails, skip this plugin
+          continue;
+        }
+        const relPath = relative(resolvedPluginsDir, resolvedPluginPath);
+        const isInsideDir =
+          !relPath.startsWith(".." + sep) && relPath !== "..";
+        if (isInsideDir) {
+          plugins.push({ type: "local", path: pluginPath });
+          console.log(`[Runner] Adding plugin: ${name}`);
+        }
       }
     }
   }
@@ -125,17 +171,72 @@ type PermissionRequestContext = {
 };
 
 /**
- * Create a canUseTool function based on permission mode and allowed tools
- * - "free" mode: auto-approve all tools except AskUserQuestion
- * - "secure" mode: require user approval for all tools
+ * Create a canUseTool function with memory leak prevention
+ * - Limits maximum pending permissions
+ * - Periodic cleanup of stale entries
+ * - Proper cleanup on all exit paths
  */
-export function createCanUseTool({
-  session,
-  sendPermissionRequest,
-  permissionMode,
-  allowedTools
-}: PermissionRequestContext) {
+export function createCanUseTool(
+  context: PermissionRequestContext,
+  config: Partial<PendingPermissionsConfig> = {}
+): (toolName: string, input: unknown, options: { signal: AbortSignal }) => Promise<PermissionResult> {
+  const { session, sendPermissionRequest, permissionMode, allowedTools } = context;
+  const fullConfig = { ...DEFAULT_PENDING_PERMISSIONS_CONFIG, ...config };
+
+  // Track cleanup interval for periodic maintenance
+  let cleanupIntervalId: ReturnType<typeof setInterval> | null = null;
+
+  /**
+   * Cleanup a single permission entry
+   */
+  function cleanupEntry(toolUseId: string, entry: PendingPermissionEntry | undefined): void {
+    if (entry) {
+      clearTimeout(entry.timeoutId);
+      session.pendingPermissions.delete(toolUseId);
+    }
+  }
+
+  /**
+   * Periodic cleanup of stale entries
+   */
+  function startPeriodicCleanup(): void {
+    if (cleanupIntervalId) return; // Already running
+
+    cleanupIntervalId = setInterval(() => {
+      const now = Date.now();
+      let cleanedCount = 0;
+
+      for (const [toolUseId, entry] of session.pendingPermissions) {
+        // Type guard for entry with createdAt
+        if ("createdAt" in Object(entry) && typeof (entry as PendingPermissionEntry).createdAt === "number") {
+          const entryTyped = entry as PendingPermissionEntry;
+          if (entryTyped.createdAt < now - fullConfig.staleThresholdMs) {
+            // Entry is stale - cleanup
+            console.warn(
+              `[Runner] Cleaning up stale permission request: ${entryTyped.toolName} (${toolUseId})`
+            );
+            cleanupEntry(toolUseId, entryTyped);
+            cleanedCount++;
+          }
+        }
+      }
+
+      if (cleanedCount > 0) {
+        console.log(`[Runner] Cleaned up ${cleanedCount} stale permission entries`);
+      }
+    }, fullConfig.cleanupIntervalMs);
+  }
+
+  // Start periodic cleanup when first permission is requested
+  let cleanupStarted = false;
+
   return async (toolName: string, input: unknown, { signal }: { signal: AbortSignal }) => {
+    // Start periodic cleanup on first use
+    if (!cleanupStarted) {
+      startPeriodicCleanup();
+      cleanupStarted = true;
+    }
+
     const isAskUserQuestion = toolName === "AskUserQuestion";
 
     // FREE mode: auto-approve all tools except AskUserQuestion
@@ -158,35 +259,70 @@ export function createCanUseTool({
       } as PermissionResult;
     }
 
+    // Check if we're exceeding the maximum pending permissions limit
+    if (session.pendingPermissions.size >= fullConfig.maxPendingPermissions) {
+      // First, try to cleanup stale entries
+      const now = Date.now();
+      for (const [toolUseId, entry] of session.pendingPermissions) {
+        if ("createdAt" in Object(entry) && typeof (entry as PendingPermissionEntry).createdAt === "number") {
+          const entryTyped = entry as PendingPermissionEntry;
+          if (entryTyped.createdAt < now - fullConfig.staleThresholdMs) {
+            cleanupEntry(toolUseId, entryTyped);
+          }
+        }
+      }
+
+      // If still at limit, deny new request
+      if (session.pendingPermissions.size >= fullConfig.maxPendingPermissions) {
+        console.warn(
+          `[Runner] Too many pending permission requests (${session.pendingPermissions.size}), denying new request`
+        );
+        return {
+          behavior: "deny",
+          message: `Too many pending permission requests (max: ${fullConfig.maxPendingPermissions})`
+        } as PermissionResult;
+      }
+    }
+
     // Request user permission
     const toolUseId = crypto.randomUUID();
+    const createdAt = Date.now();
+
     sendPermissionRequest(toolUseId, toolName, input);
 
     return new Promise<PermissionResult>((resolve) => {
-      // Set timeout to prevent indefinite waiting
-      const timeoutId = setTimeout(() => {
-        session.pendingPermissions.delete(toolUseId);
-        console.warn(`[Runner] Permission request timed out for tool ${toolName} (${toolUseId})`);
-        resolve({ behavior: "deny", message: "Permission request timed out after 5 minutes" });
-      }, PERMISSION_TIMEOUT_MS);
-
-      session.pendingPermissions.set(toolUseId, {
+      // Create entry with tracking
+      const entry: PendingPermissionEntry = {
         toolUseId,
         toolName,
         input,
-        resolve: (result) => {
-          clearTimeout(timeoutId);
-          session.pendingPermissions.delete(toolUseId);
-          resolve(result as PermissionResult);
+        createdAt,
+        resolve: (result: PermissionResult) => {
+          cleanupEntry(toolUseId, entry);
+          resolve(result);
         }
-      });
+      };
 
-      // Handle abort
-      signal.addEventListener("abort", () => {
-        clearTimeout(timeoutId);
-        session.pendingPermissions.delete(toolUseId);
+      // Set timeout to prevent indefinite waiting
+      const timeoutId = setTimeout(() => {
+        console.warn(
+          `[Runner] Permission request timed out for tool ${toolName} (${toolUseId})`
+        );
+        cleanupEntry(toolUseId, entry);
+        resolve({ behavior: "deny", message: "Permission request timed out after 5 minutes" });
+      }, fullConfig.permissionTimeoutMs);
+
+      entry.timeoutId = timeoutId;
+      session.pendingPermissions.set(toolUseId, entry);
+
+      // Handle abort signal
+      const abortHandler = () => {
+        signal.removeEventListener("abort", abortHandler);
+        cleanupEntry(toolUseId, entry);
         resolve({ behavior: "deny", message: "Session aborted" });
-      });
+      };
+
+      signal.addEventListener("abort", abortHandler);
     });
   };
 }
@@ -201,11 +337,7 @@ export async function runClaude(options: RunnerOptions): Promise<RunnerHandle> {
 
   // SECURITY: providerEnv is already prepared by ipc-handlers with decrypted token
   // Tokens are decrypted on-demand in main process and passed here as env vars
-  console.log(`[Runner] providerEnv received:`, providerEnv ? {
-    ANTHROPIC_MODEL: providerEnv.ANTHROPIC_MODEL,
-    ANTHROPIC_BASE_URL: providerEnv.ANTHROPIC_BASE_URL,
-    hasToken: !!providerEnv.ANTHROPIC_AUTH_TOKEN
-  } : "null/undefined");
+  // Note: Debug logging removed to prevent accidental token exposure
   const customEnv = providerEnv || {};
   console.log(`[Runner] customEnv keys:`, Object.keys(customEnv));
 
@@ -234,19 +366,16 @@ export async function runClaude(options: RunnerOptions): Promise<RunnerHandle> {
   // Start the query in the background
   (async () => {
     try {
-      // Debug: log which model is being used
-      const modelUsed = customEnv.ANTHROPIC_MODEL || enhancedEnv.ANTHROPIC_MODEL || "default (claude-sonnet-4-20250514)";
+      // Debug: log which model is being used (minimal logging for security)
+      const modelUsed = customEnv.ANTHROPIC_MODEL || enhancedEnv.ANTHROPIC_MODEL || "default";
       console.log(`[Runner] Starting session with model: ${modelUsed}`);
-      console.log(`[Runner] Base URL: ${customEnv.ANTHROPIC_BASE_URL || enhancedEnv.ANTHROPIC_BASE_URL || "default"}`);
 
       // Get settings for agents, plugins, and hooks
       const settingSources = getSettingSources();
       const customAgents = getCustomAgents();
       const plugins = getLocalPlugins();
 
-      console.log(`[Runner] settingSources: ${settingSources.join(", ")}`);
-      console.log(`[Runner] customAgents: ${Object.keys(customAgents).join(", ") || "none"}`);
-      console.log(`[Runner] plugins: ${plugins.length} loaded`);
+      console.log(`[Runner] Loaded ${customAgents.length} custom agents, ${plugins.length} plugins`);
 
       const q = query({
         prompt,

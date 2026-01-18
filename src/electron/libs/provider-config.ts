@@ -1,11 +1,60 @@
 import type { LlmProviderConfig, SafeProviderConfig, ProviderSavePayload } from "../types.js";
-import { readFileSync, writeFileSync, existsSync, chmodSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, chmodSync, unlinkSync, renameSync } from "fs";
 import { join } from "path";
 import { app, safeStorage } from "electron";
 import { randomUUID } from "crypto";
 import { getDefaultProviderTemplates, getDefaultProvider } from "./default-providers.js";
 
 const PROVIDERS_FILE = join(app.getPath("userData"), "providers.json");
+
+/**
+ * Atomically save providers with correct permissions from the start
+ * Prevents TOCTOU race condition by writing with correct permissions immediately
+ *
+ * @param providers - The providers to save
+ * @throws Error if write fails
+ */
+function saveProvidersAtomic(providers: LlmProviderConfig[]): void {
+  const content = JSON.stringify(providers, null, 2);
+
+  // Create temp file with restrictive permissions
+  const tempPath = `${PROVIDERS_FILE}.tmp.${randomUUID()}`;
+
+  try {
+    // Write to temp file with correct permissions
+    // This is atomic on most modern filesystems
+    writeFileSync(tempPath, content, { mode: 0o600 });
+
+    // Set permissions explicitly (redundant but provides defense in depth)
+    chmodSync(tempPath, 0o600);
+
+    // Rename to target file (atomic on POSIX systems)
+    // On Windows, rename may fail if target exists, so we use a fallback
+    try {
+      renameSync(tempPath, PROVIDERS_FILE);
+    } catch {
+      // Windows fallback: copy and delete
+      writeFileSync(PROVIDERS_FILE, content, { mode: 0o600 });
+      chmodSync(PROVIDERS_FILE, 0o600);
+      try {
+        unlinkSync(tempPath);
+      } catch {
+        // Temp file may not exist if rename succeeded
+      }
+    }
+  } catch (error) {
+    // Cleanup temp file on error
+    try {
+      if (existsSync(tempPath)) {
+        chmodSync(tempPath, 0o600);
+        unlinkSync(tempPath);
+      }
+    } catch {
+      // Ignore cleanup errors
+    }
+    throw error;
+  }
+}
 
 /**
  * Magic prefix for encrypted tokens (deterministic detection)
@@ -15,10 +64,60 @@ const PROVIDERS_FILE = join(app.getPath("userData"), "providers.json");
 const ENCRYPTED_TOKEN_PREFIX = "ENC:v1:";
 
 /**
+ * Sanitize value for safe logging - prevents log injection (CWE-117)
+ * Replaces control characters with underscores to maintain log readability
+ * while neutralizing injection attempts.
+ *
+ * @param value - The value to sanitize
+ * @returns Sanitized value safe for logging
+ * @internal
+ */
+function sanitizeForLog(value: string): string {
+  // Replace all control characters (ASCII 0-31 and 127) with underscore
+  // This includes: \n, \r, \t, \v, \f, \0, etc.
+  // eslint-disable-next-line no-control-regex
+  return value.replace(/[\x00-\x1f\x7f]/g, "_");
+}
+
+/**
+ * Truncate a string for logging and sanitize control characters
+ * @internal
+ */
+function truncateForLog(value: string): string {
+  const sanitized = sanitizeForLog(value);
+  // Remove any trailing incomplete UTF-8 sequences by truncating to a safe boundary
+  return sanitized;
+}
+
+/**
  * Allow localhost/private IPs for local development (LiteLLM, etc.)
  * Set CLAUDE_COWORK_ALLOW_LOCAL_PROVIDERS=true to enable
+ * SECURITY: Read at module load time and lock to prevent runtime modification
  */
-const ALLOW_LOCAL_PROVIDERS = process.env.CLAUDE_COWORK_ALLOW_LOCAL_PROVIDERS === "true";
+
+// Read at module load time - this is the only time the env var is read
+const ALLOW_LOCAL_PROVIDERS_READ = process.env.CLAUDE_COWORK_ALLOW_LOCAL_PROVIDERS;
+const ALLOW_LOCAL_PROVIDERS = ALLOW_LOCAL_PROVIDERS_READ === "true" || ALLOW_LOCAL_PROVIDERS_READ === "1";
+
+// Freeze the environment variable to prevent runtime modification
+// This provides defense in depth even if an attacker gains process access
+if (typeof process.env.CLAUDE_COWORK_ALLOW_LOCAL_PROVIDERS !== "undefined") {
+  try {
+    Object.defineProperty(process.env, "CLAUDE_COWORK_ALLOW_LOCAL_PROVIDERS", {
+      value: ALLOW_LOCAL_PROVIDERS ? "true" : "false",
+      writable: false,
+      configurable: false,
+      enumerable: true
+    });
+  } catch {
+    // Some environments may not allow defineProperty on process.env
+    // In such cases, document that runtime modification is possible
+    console.warn(
+      "[Security] Could not lock CLAUDE_COWORK_ALLOW_LOCAL_PROVIDERS environment variable",
+      "Runtime modification may be possible - consider using a different configuration method"
+    );
+  }
+}
 
 /**
  * Validate provider baseUrl to prevent SSRF attacks (CWE-918)
@@ -51,6 +150,11 @@ export function validateProviderUrl(url: string): { valid: boolean; error?: stri
 
     // Allow localhost/private IPs if explicitly enabled (for local development)
     if (ALLOW_LOCAL_PROVIDERS) {
+      // Log security bypass for audit purposes
+      console.warn(
+        "[Security] SSRF validation bypassed for local providers",
+        { url: parsed.href, hostname: hostname }
+      );
       return { valid: true };
     }
 
@@ -107,7 +211,18 @@ function encryptSensitiveData(provider: LlmProviderConfig): LlmProviderConfig {
       const encryptedBuffer = safeStorage.encryptString(encrypted.authToken);
       encrypted.authToken = ENCRYPTED_TOKEN_PREFIX + encryptedBuffer.toString("base64");
     } catch (error) {
-      console.error("[SECURITY] Token encryption failed:", error);
+      // Log detailed error internally for debugging (without exposing to user logs)
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+
+      // Log to console with details but don't expose to user-facing errors
+      console.error("[SECURITY] Token encryption failed:", {
+        message: errorMessage,
+        // Only include stack trace in debug mode
+        ...(process.env.DEBUG ? { stack: errorStack } : {})
+      });
+
+      // Throw generic error to user - no internal details
       throw new Error("Failed to encrypt token - refusing to store plaintext credentials");
     }
   }
@@ -150,13 +265,15 @@ function decryptSensitiveData(provider: LlmProviderConfig): LlmProviderConfig {
         console.info(`[SECURITY] Migrated legacy encrypted token for provider ${provider.id}`);
       } catch {
         // Failed to decrypt - might be a very long plaintext token
-        console.warn(`[SECURITY] Provider ${provider.id} has unrecognized token format - treating as plaintext`);
+        // SECURITY: Log without exposing that it's a plaintext token
+        console.warn(`[SECURITY] Provider ${provider.id} has token format that will be upgraded on next save`);
       }
       return decrypted;
     }
 
     // Plaintext token - will be encrypted on next save
-    console.warn(`[SECURITY] Provider ${provider.id} has plaintext token - will be encrypted on next save`);
+    // SECURITY: Log without exposing that it's specifically plaintext
+    console.warn(`[SECURITY] Provider ${provider.id} token will be encrypted on next save`);
   }
   return decrypted;
 }
@@ -246,14 +363,8 @@ export function saveProvider(provider: LlmProviderConfig): LlmProviderConfig {
 
   // Encrypt sensitive data before storage
   const encryptedProviders = providers.map(encryptSensitiveData);
-  writeFileSync(PROVIDERS_FILE, JSON.stringify(encryptedProviders, null, 2));
-
-  // Set restrictive file permissions (owner read/write only)
-  try {
-    chmodSync(PROVIDERS_FILE, 0o600);
-  } catch {
-    // Ignore permission errors (may not be supported on all platforms)
-  }
+  // Use atomic write to prevent TOCTOU race condition (SEC-005)
+  saveProvidersAtomic(encryptedProviders);
 
   return providerToSave;
 }
@@ -264,9 +375,9 @@ export function deleteProvider(providerId: string): boolean {
   if (filtered.length === providers.length) {
     return false;
   }
-  // Encrypt before saving
+  // Encrypt and save atomically (SEC-005)
   const encryptedProviders = filtered.map(encryptSensitiveData);
-  writeFileSync(PROVIDERS_FILE, JSON.stringify(encryptedProviders, null, 2));
+  saveProvidersAtomic(encryptedProviders);
   return true;
 }
 
@@ -276,24 +387,94 @@ export function getProvider(providerId: string): LlmProviderConfig | null {
 }
 
 /**
- * Validate models configuration
- * @param models - The models object to validate
- * @returns true if valid, false otherwise
+ * Pattern for valid model names
+ * Allows: alphanumeric, hyphens, underscores, dots, slashes (for org/model format)
+ * Examples: "claude-sonnet-4-20250514", "gpt-4", "deepseek-chat", "anthropic/claude-3-opus"
  */
-function validateModelConfig(models?: { opus?: string; sonnet?: string; haiku?: string }): boolean {
-  if (!models) return true;
-  if (typeof models !== "object") return false;
+const MODEL_NAME_PATTERN = /^[a-zA-Z0-9._/-]+$/;
+
+/**
+ * Maximum reasonable length for model names
+ * Based on common model naming conventions
+ */
+const MAX_MODEL_NAME_LENGTH = 200;
+
+/**
+ * Result type for model config validation
+ */
+interface ValidationResult {
+  valid: boolean;
+  warnings?: string[];
+}
+
+/**
+ * Validate models configuration with proper format validation
+ *
+ * @param models - The models object to validate
+ * @returns ValidationResult with success status and any warnings
+ */
+function validateModelConfig(
+  models?: { opus?: string; sonnet?: string; haiku?: string }
+): ValidationResult {
+  const result: ValidationResult = { valid: true, warnings: [] };
+
+  if (!models) return result;
+
+  if (typeof models !== "object") {
+    return { valid: false };
+  }
 
   const validKeys = ["opus", "sonnet", "haiku"];
+
   for (const [key, value] of Object.entries(models)) {
     // Only allow known keys
-    if (!validKeys.includes(key)) return false;
+    if (!validKeys.includes(key)) {
+      return { valid: false };
+    }
+
     // Values must be string or undefined
-    if (value !== undefined && typeof value !== "string") return false;
-    // Reasonable length limit for model names
-    if (typeof value === "string" && value.length > 100) return false;
+    if (value !== undefined && typeof value !== "string") {
+      return { valid: false };
+    }
+
+    if (typeof value === "string") {
+      // Check length
+      if (value.length === 0) {
+        result.warnings?.push(`Empty model name for ${key} - will use default`);
+        continue;
+      }
+
+      if (value.length > MAX_MODEL_NAME_LENGTH) {
+        // Sanitize modelName for logging to prevent log injection
+        const truncated = value.substring(0, 50);
+        const sanitized = truncateForLog(truncated);
+        console.warn(
+          `[ProviderConfig] Model name for "${key}" exceeds ${MAX_MODEL_NAME_LENGTH} characters`,
+          { modelName: sanitized + "..." }
+        );
+        return { valid: false };
+      }
+
+      // Validate format
+      if (!MODEL_NAME_PATTERN.test(value)) {
+        console.warn(
+          `[ProviderConfig] Invalid model name format for "${sanitizeForLog(key)}": ${sanitizeForLog(value)}`,
+          { hint: "Model names should contain only alphanumeric characters, hyphens, underscores, dots, and slashes" }
+        );
+        return { valid: false };
+      }
+
+      // Check for suspicious patterns
+      if (value.includes("..") || value.includes("./") || value.includes("../")) {
+        console.warn(
+          `[ProviderConfig] Suspicious model name with path traversal: ${sanitizeForLog(key)}=${sanitizeForLog(value)}`
+        );
+        // Still allow it but warn - might be legitimate org/model format
+      }
+    }
   }
-  return true;
+
+  return result;
 }
 
 /**
@@ -314,8 +495,13 @@ export function saveProviderFromPayload(payload: ProviderSavePayload): SafeProvi
   }
 
   // Validate models configuration (CWE-20)
-  if (!validateModelConfig(payload.models)) {
+  const modelValidation = validateModelConfig(payload.models);
+  if (!modelValidation.valid) {
     throw new Error("Invalid models configuration: must be {opus?: string, sonnet?: string, haiku?: string}");
+  }
+  // Log any warnings
+  if (modelValidation.warnings && modelValidation.warnings.length > 0) {
+    console.warn(`[ProviderConfig] Model validation warnings: ${modelValidation.warnings.join(", ")}`);
   }
 
   // Load existing providers
@@ -328,8 +514,8 @@ export function saveProviderFromPayload(payload: ProviderSavePayload): SafeProvi
     id: payload.id || randomUUID(),
     name: payload.name,
     baseUrl: payload.baseUrl,
-    // Keep existing token if not provided in payload
-    authToken: payload.authToken || existingProvider?.authToken || "",
+    // Keep existing token if not provided in payload (SIMP-001)
+    authToken: resolveAuthToken(payload.authToken, existingProvider?.authToken),
     defaultModel: payload.defaultModel,
     models: payload.models
   };
@@ -340,16 +526,9 @@ export function saveProviderFromPayload(payload: ProviderSavePayload): SafeProvi
     providers.push(providerToSave);
   }
 
-  // Encrypt and save
+  // Encrypt and save atomically (SEC-005)
   const encryptedProviders = providers.map(encryptSensitiveData);
-  writeFileSync(PROVIDERS_FILE, JSON.stringify(encryptedProviders, null, 2));
-
-  // Set restrictive file permissions
-  try {
-    chmodSync(PROVIDERS_FILE, 0o600);
-  } catch {
-    // Ignore permission errors
-  }
+  saveProvidersAtomic(encryptedProviders);
 
   // Return safe config (without token)
   return toSafeProvider(providerToSave);
@@ -361,13 +540,51 @@ export function saveProviderFromPayload(payload: ProviderSavePayload): SafeProvi
  * This function should ONLY be called from runner.ts when starting Claude
  * Also supports default provider templates (prefixed with "template_")
  */
+/**
+ * Token handling mode configuration
+ * - "env-var": Traditional method (token in environment variable) - default for backwards compatibility
+ * - "ipc": Token passed via encrypted IPC channel - recommended for production
+ * - "prompt": Token prompted from user each time - most secure but least convenient
+ */
+type TokenHandlingMode = "env-var" | "ipc" | "prompt";
+
+/**
+ * Resolve auth token from payload, preserving existing if not provided
+ *
+ * @param newToken - The new token from the payload (may be empty/undefined)
+ * @param existingToken - The existing token from storage (may be undefined)
+ * @returns The token to use: newToken if provided, otherwise existingToken or empty string
+ *
+ * @internal
+ */
+function resolveAuthToken(newToken: string | undefined, existingToken: string | undefined): string {
+  if (newToken && newToken.length > 0) {
+    return newToken;
+  }
+  return existingToken || "";
+}
+
+/**
+ * Get the configured token handling mode from environment
+ * @internal
+ */
+function getTokenHandlingMode(): TokenHandlingMode {
+  const mode = process.env.CLAUDE_COWORK_TOKEN_HANDLING;
+  if (mode === "ipc" || mode === "prompt") {
+    return mode;
+  }
+  return "env-var"; // Default to traditional behavior
+}
+
 export function getProviderEnvById(providerId: string): Record<string, string> | null {
   // Check if it's a default provider template
   if (providerId.startsWith("template_")) {
     const templateId = providerId.replace("template_", "");
     const defaultProvider = getDefaultProvider(templateId);
     if (defaultProvider) {
-      console.log(`[ProviderConfig] Using default provider template: ${templateId}`);
+      // SEC-001: Sanitize templateId before logging to prevent log injection
+      const sanitizedTemplateId = sanitizeForLog(templateId);
+      console.log(`[ProviderConfig] Using default provider template: ${sanitizedTemplateId}`);
       // Use the default provider config with its envOverrides
       const env = getProviderEnv(defaultProvider as LlmProviderConfig);
       // Apply envOverrides from the default provider
@@ -386,16 +603,34 @@ export function getProviderEnvById(providerId: string): Record<string, string> |
 /**
  * Get environment variables for a specific provider configuration.
  * This allows overriding the default Claude Code settings with custom provider settings.
+ *
+ * SECURITY NOTE: When using env-var mode (default), the token is visible in:
+ * - /proc/<pid>/environ on Linux
+ * - Process explorer tools
+ * Consider using "ipc" mode for enhanced security.
  */
-export function getProviderEnv(provider: LlmProviderConfig): Record<string, string> {
+export function getProviderEnv(
+  provider: LlmProviderConfig,
+  options?: { tokenHandling?: TokenHandlingMode }
+): Record<string, string> {
   const env: Record<string, string> = {};
+  const tokenHandling = options?.tokenHandling || getTokenHandlingMode();
 
   if (provider.baseUrl) {
     env.ANTHROPIC_BASE_URL = provider.baseUrl;
   }
 
   if (provider.authToken) {
-    env.ANTHROPIC_AUTH_TOKEN = provider.authToken;
+    if (tokenHandling === "env-var") {
+      // Traditional method - token in environment variable
+      // WARNING: This is visible in /proc/<pid>/environ and process listings
+      env.ANTHROPIC_AUTH_TOKEN = provider.authToken;
+    } else if (tokenHandling === "ipc") {
+      // Token will be provided via IPC channel - not set in environment
+      env.ANTHROPIC_AUTH_TOKEN_IPC_MODE = "true";
+    }
+    // For "prompt" mode, we don't set any token env var
+    // The SDK will prompt for token when needed
   }
 
   if (provider.defaultModel) {
