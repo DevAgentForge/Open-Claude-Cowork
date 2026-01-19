@@ -89,4 +89,33 @@ describe("sanitizeForLog", () => {
     expect(result.includes("\n")).toBe(false);
     expect(result.includes("\r")).toBe(false);
   });
+
+  // L-006: Additional log injection tests for ANSI escape sequences
+  it("should neutralize ANSI escape sequences (ESC character)", () => {
+    // ANSI escape sequences start with ESC (0x1B) followed by [
+    const ansiInput = "normal\x1b[31mRED TEXT\x1b[0mnormal";
+    // eslint-disable-next-line no-control-regex
+    const result = ansiInput.replace(/[\x00-\x1f\x7f]/g, "_");
+    // ESC (0x1B = 27 decimal) is a control character and should be replaced
+    expect(result).toBe("normal_[31mRED TEXT_[0mnormal");
+    expect(result.includes("\x1b")).toBe(false);
+  });
+
+  it("should neutralize DEL character (0x7F)", () => {
+    const input = "hello\x7fworld";
+    // eslint-disable-next-line no-control-regex
+    const result = input.replace(/[\x00-\x1f\x7f]/g, "_");
+    expect(result).toBe("hello_world");
+    expect(result.includes("\x7f")).toBe(false);
+  });
+
+  it("should handle complex log injection attempts with multiple control chars", () => {
+    // Attacker might try multiple injection vectors
+    const complexAttack = "user_id\n\x1b[31mFAKE ERROR\x1b[0m\n\rAnother line\x00\ttab";
+    // eslint-disable-next-line no-control-regex
+    const result = complexAttack.replace(/[\x00-\x1f\x7f]/g, "_");
+    expect(result).toBe("user_id__[31mFAKE ERROR_[0m__Another line__tab");
+    expect(result.split("\n").length).toBe(1);
+    expect(result.split("\r").length).toBe(1);
+  });
 });

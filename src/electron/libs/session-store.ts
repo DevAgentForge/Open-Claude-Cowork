@@ -17,6 +17,8 @@ export type PendingPermission = {
   toolName: string;
   input: unknown;
   resolve: (result: { behavior: "allow" | "deny"; updatedInput?: unknown; message?: string }) => void;
+  createdAt?: number;
+  timeoutId?: ReturnType<typeof setTimeout>;
 };
 
 export type Session = {
@@ -130,6 +132,14 @@ export type SessionHistory = {
 export class SessionStore {
   private sessions = new Map<string, Session>();
   private db: Database.Database;
+  // PERFORMANCE: Cache for path validation results to avoid repeated filesystem checks
+  private pathValidationCache = new Map<string, { valid: boolean; resolved?: string; timestamp: number }>();
+  // L-005: Configurable cache TTL via environment variable (default: 60 seconds)
+  // Set CLAUDE_COWORK_PATH_CACHE_TTL_MS for high-security environments
+  private static readonly PATH_CACHE_TTL_MS = parseInt(
+    process.env.CLAUDE_COWORK_PATH_CACHE_TTL_MS || "60000",
+    10
+  ) || 60_000;
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
@@ -361,6 +371,8 @@ export class SessionStore {
    * Sanitize path to prevent path traversal attacks (CWE-22)
    * Validates that the path is a real directory without dangerous sequences
    * Note: Quotes are allowed in paths (valid in Unix/Windows filenames)
+   *
+   * PERFORMANCE: Uses cache to avoid repeated filesystem checks
    */
   private sanitizePath(inputPath: string): string {
     // 1. Detect null bytes (CWE-626)
@@ -390,14 +402,33 @@ export class SessionStore {
       throw new Error("Invalid path: path traversal detected after normalization");
     }
 
-    // 6. Validate that the directory exists
-    if (!existsSync(resolved)) {
+    // 6. Check cache for path validation result (PERFORMANCE)
+    const cached = this.pathValidationCache.get(resolved);
+    const now = Date.now();
+    if (cached && (now - cached.timestamp) < SessionStore.PATH_CACHE_TTL_MS) {
+      if (cached.valid && cached.resolved) {
+        return cached.resolved;
+      }
       throw new Error(`Invalid path: directory does not exist: ${resolved}`);
     }
+
+    // 7. Validate that the directory exists (only if not cached)
+    if (!existsSync(resolved)) {
+      this.pathValidationCache.set(resolved, { valid: false, timestamp: now });
+      throw new Error(`Invalid path: directory does not exist: ${resolved}`);
+    }
+
+    // 8. Cache the valid result
+    this.pathValidationCache.set(resolved, { valid: true, resolved, timestamp: now });
 
     return resolved;
   }
 
+  /**
+   * PERFORMANCE: Optimized session loading with deferred path validation
+   * - Load all sessions immediately without blocking on path checks
+   * - Mark sessions with potentially invalid paths for lazy validation
+   */
   private loadSessions(): void {
     const rows = this.db
       .prepare(
@@ -406,68 +437,64 @@ export class SessionStore {
       )
       .all();
 
-    let invalidPathCount = 0;
-    const invalidSessionIds: string[] = [];
-
+    // Load all sessions immediately without expensive path validation
     for (const row of rows as Array<Record<string, unknown>>) {
-      // Re-validate cwd on load (security: CWE-22)
-      // If path is invalid/deleted, set to undefined and log the issue
-      let validatedCwd: string | undefined;
-      let pathLoadError: Error | null = null;
-      let originalCwd: string | null = null;
-
-      if (row.cwd) {
-        originalCwd = String(row.cwd);
-        try {
-          validatedCwd = this.sanitizePath(originalCwd);
-        } catch (error) {
-          // Log the error for debugging but don't crash
-          // The path may have been deleted, moved, or had permissions changed
-          pathLoadError = error instanceof Error ? error : new Error(String(error));
-
-          console.warn(
-            `[SessionStore] Session ${String(row.id)} has invalid cwd path, skipping validation`,
-            {
-              sessionId: String(row.id),
-              originalPath: sanitizeForLog(originalCwd),
-              error: sanitizeForLog(pathLoadError.message)
-            }
-          );
-
-          validatedCwd = undefined;
-        }
-      }
-
       const session: Session = {
         id: String(row.id),
         title: String(row.title),
         claudeSessionId: row.claude_session_id ? String(row.claude_session_id) : undefined,
         status: row.status as SessionStatus,
-        cwd: validatedCwd,
-        // Track if this session has an invalid cwd
+        // PERFORMANCE: Keep original cwd without validation on load
+        // Path will be validated when session is actually used
+        cwd: row.cwd ? String(row.cwd) : undefined,
         allowedTools: row.allowed_tools ? String(row.allowed_tools) : undefined,
         lastPrompt: row.last_prompt ? String(row.last_prompt) : undefined,
         permissionMode: row.permission_mode ? (row.permission_mode as PermissionMode) : undefined,
         pendingPermissions: new Map()
       };
 
-      // If path was invalid, mark session as needing attention
-      if (pathLoadError) {
-        session.status = "error";
-        invalidPathCount++;
-        invalidSessionIds.push(session.id);
-      }
-
       this.sessions.set(session.id, session);
     }
 
-    // Log summary of any path issues
-    if (invalidPathCount > 0) {
+    console.log(`[SessionStore] Loaded ${rows.length} sessions (path validation deferred)`);
+  }
+
+  /**
+   * Validate path for a specific session (called on demand)
+   * Returns true if valid, false if invalid
+   */
+  validateSessionPath(sessionId: string): boolean {
+    const session = this.sessions.get(sessionId);
+    if (!session || !session.cwd) return true; // No path to validate
+
+    try {
+      const validated = this.sanitizePath(session.cwd);
+      session.cwd = validated;
+      return true;
+    } catch (error) {
+      // Mark session as having invalid path
+      session.status = "error";
+      const originalPath = session.cwd;
+      session.cwd = undefined;
+
       console.warn(
-        `[SessionStore] Loaded ${rows.length} sessions, ${invalidPathCount} had invalid cwd paths`,
-        { invalidSessionIds }
+        `[SessionStore] Session ${sessionId} has invalid cwd path`,
+        {
+          sessionId,
+          originalPath: sanitizeForLog(originalPath),
+          error: error instanceof Error ? sanitizeForLog(error.message) : "Unknown error"
+        }
       );
+
+      return false;
     }
+  }
+
+  /**
+   * Clear the path validation cache (e.g., when paths might have changed)
+   */
+  clearPathCache(): void {
+    this.pathValidationCache.clear();
   }
 
   close(): void {

@@ -7,6 +7,12 @@ export type UserPromptMessage = {
 
 export type StreamMessage = SDKMessage | UserPromptMessage;
 
+/**
+ * H-004: Enriched message with stable client-side ID for React reconciliation
+ * The _clientId is generated at ingestion time and used as React key
+ */
+export type EnrichedMessage = StreamMessage & { _clientId: string };
+
 export type SessionStatus = "idle" | "running" | "completed" | "error";
 
 export type SessionInfo = {

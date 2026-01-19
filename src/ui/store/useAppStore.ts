@@ -1,5 +1,44 @@
 import { create } from 'zustand';
-import type { ServerEvent, SessionStatus, StreamMessage, SafeProviderConfig } from "../types";
+import type { ServerEvent, SessionStatus, StreamMessage, SafeProviderConfig, EnrichedMessage } from "../types";
+
+/**
+ * H-004: Generate unique client-side ID for React reconciliation
+ * Uses crypto.randomUUID when available, falls back to timestamp + random
+ */
+let messageCounter = 0;
+function generateClientId(): string {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  // Fallback for environments without crypto.randomUUID
+  return `msg-${Date.now()}-${++messageCounter}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+/**
+ * H-004: Enrich a message with a stable client-side ID
+ */
+function enrichMessage(msg: StreamMessage): EnrichedMessage {
+  return { ...msg, _clientId: generateClientId() };
+}
+
+/**
+ * M-006: Maximum number of messages to retain per session
+ * Prevents unbounded memory growth in long-running sessions
+ * Older messages are removed when this limit is exceeded
+ */
+const MAX_MESSAGES_PER_SESSION = 1000;
+
+/**
+ * Helper function to limit message array size (M-006)
+ * Keeps the most recent messages up to MAX_MESSAGES_PER_SESSION
+ */
+function limitMessages(messages: EnrichedMessage[]): EnrichedMessage[] {
+  if (messages.length <= MAX_MESSAGES_PER_SESSION) {
+    return messages;
+  }
+  // Keep the most recent messages
+  return messages.slice(-MAX_MESSAGES_PER_SESSION);
+}
 
 export type PermissionRequest = {
   toolUseId: string;
@@ -12,7 +51,7 @@ export type SessionView = {
   title: string;
   status: SessionStatus;
   cwd?: string;
-  messages: StreamMessage[];
+  messages: EnrichedMessage[];  // H-004: Use enriched messages with stable _clientId
   permissionRequests: PermissionRequest[];
   lastPrompt?: string;
   createdAt?: number;
@@ -153,10 +192,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         const { sessionId, messages, status } = event.payload;
         set((state) => {
           const existing = state.sessions[sessionId] ?? createSession(sessionId);
+          // H-004: Enrich all history messages with stable _clientId for React reconciliation
+          const enrichedMessages = messages.map(enrichMessage);
           return {
             sessions: {
               ...state.sessions,
-              [sessionId]: { ...existing, status, messages, hydrated: true }
+              [sessionId]: { ...existing, status, messages: enrichedMessages, hydrated: true }
             }
           };
         });
@@ -194,8 +235,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (!state.sessions[sessionId]) break;
         const nextSessions = { ...state.sessions };
         delete nextSessions[sessionId];
+        // H-003: Clean up historyRequested to prevent memory leak
+        const nextHistoryRequested = new Set(state.historyRequested);
+        nextHistoryRequested.delete(sessionId);
         set({
           sessions: nextSessions,
+          historyRequested: nextHistoryRequested,
           showStartModal: Object.keys(nextSessions).length === 0
         });
         if (state.activeSessionId === sessionId) {
@@ -211,10 +256,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         const { sessionId, message } = event.payload;
         set((state) => {
           const existing = state.sessions[sessionId] ?? createSession(sessionId);
+          // H-004: Enrich message with stable _clientId for React reconciliation
+          // M-006: Apply message limit to prevent unbounded growth
+          const newMessages = limitMessages([...existing.messages, enrichMessage(message)]);
           return {
             sessions: {
               ...state.sessions,
-              [sessionId]: { ...existing, messages: [...existing.messages, message] }
+              [sessionId]: { ...existing, messages: newMessages }
             }
           };
         });
@@ -225,12 +273,16 @@ export const useAppStore = create<AppState>((set, get) => ({
         const { sessionId, prompt } = event.payload;
         set((state) => {
           const existing = state.sessions[sessionId] ?? createSession(sessionId);
+          // H-004: Enrich user prompt with stable _clientId for React reconciliation
+          // M-006: Apply message limit to prevent unbounded growth
+          const userPromptMessage = enrichMessage({ type: "user_prompt" as const, prompt });
+          const newMessages = limitMessages([...existing.messages, userPromptMessage]);
           return {
             sessions: {
               ...state.sessions,
               [sessionId]: {
                 ...existing,
-                messages: [...existing.messages, { type: "user_prompt", prompt }]
+                messages: newMessages
               }
             }
           };
