@@ -89,9 +89,9 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
       <div className="w-full max-w-lg rounded-2xl border border-ink-900/5 bg-surface p-6 shadow-elevated">
         <div className="flex items-center justify-between">
           <div className="text-base font-semibold text-ink-800">API Configuration</div>
-          <button 
-            className="rounded-full p-1.5 text-muted hover:bg-surface-tertiary hover:text-ink-700 transition-colors" 
-            onClick={onClose} 
+          <button
+            className="rounded-full p-1.5 text-muted hover:bg-surface-tertiary hover:text-ink-700 transition-colors"
+            onClick={onClose}
             aria-label="Close"
           >
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
@@ -99,8 +99,8 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
             </svg>
           </button>
         </div>
-        <p className="mt-2 text-sm text-muted">Configure API key, base URL, and model for the AI agent.</p>
-        
+        <p className="mt-2 text-sm text-muted">Supports Anthropic’s official API as well as third-party APIs compatible with the Anthropic format.</p>
+
         {loading ? (
           <div className="mt-5 flex items-center justify-center py-8">
             <svg aria-hidden="true" className="w-6 h-6 animate-spin text-accent" viewBox="0 0 100 101" fill="none">
@@ -110,6 +110,18 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
           </div>
         ) : (
           <div className="mt-5 grid gap-4">
+            <label className="grid gap-1.5">
+              <span className="text-xs font-medium text-muted">Base URL</span>
+              <input
+                type="url"
+                className="rounded-xl border border-ink-900/10 bg-surface-secondary px-4 py-2.5 text-sm text-ink-800 placeholder:text-muted-light focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/20 transition-colors"
+                placeholder="htts://..."
+                value={baseURL}
+                onChange={(e) => setBaseURL(e.target.value)}
+                required
+              />
+            </label>
+
             <label className="grid gap-1.5">
               <span className="text-xs font-medium text-muted">API Key</span>
               <input
@@ -121,19 +133,9 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                 required
               />
             </label>
+
             <label className="grid gap-1.5">
-              <span className="text-xs font-medium text-muted">Base URL</span>
-              <input
-                type="url"
-                className="rounded-xl border border-ink-900/10 bg-surface-secondary px-4 py-2.5 text-sm text-ink-800 placeholder:text-muted-light focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/20 transition-colors"
-                placeholder="https://api.anthropic.com"
-                value={baseURL}
-                onChange={(e) => setBaseURL(e.target.value)}
-                required
-              />
-            </label>
-            <label className="grid gap-1.5">
-              <span className="text-xs font-medium text-muted">Model</span>
+              <span className="text-xs font-medium text-muted">Model Name</span>
               <input
                 type="text"
                 className="rounded-xl border border-ink-900/10 bg-surface-secondary px-4 py-2.5 text-sm text-ink-800 placeholder:text-muted-light focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/20 transition-colors"
@@ -143,13 +145,13 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                 required
               />
             </label>
-            
+
             {error && (
               <div className="rounded-xl border border-error/20 bg-error-light px-4 py-2.5 text-sm text-error">
                 {error}
               </div>
             )}
-            
+
             {success && (
               <div className="rounded-xl border border-success/20 bg-success-light px-4 py-2.5 text-sm text-success">
                 Configuration saved successfully!
