@@ -9,6 +9,10 @@ import { StartSessionModal } from "./components/StartSessionModal";
 import { SettingsModal } from "./components/SettingsModal";
 import { PromptInput, usePromptActions } from "./components/PromptInput";
 import { MessageCard } from "./components/EventCard";
+import { TemplateSelector } from "./components/TemplateSelector";
+import { SessionSearch } from "./components/SessionSearch";
+import { AuditLogViewer } from "./components/AuditLogViewer";
+import type { SessionTemplate } from "./components/TemplateSelector";
 import MDContent from "./render/markdown";
 
 const SCROLL_THRESHOLD = 50;
@@ -25,6 +29,11 @@ function App() {
   const prevMessagesLengthRef = useRef(0);
   const scrollHeightBeforeLoadRef = useRef(0);
   const shouldRestoreScrollRef = useRef(false);
+
+  // New feature states
+  const [showTemplateSelector, setShowTemplateSelector] = useState(false);
+  const [showSessionSearch, setShowSessionSearch] = useState(false);
+  const [showAuditLogViewer, setShowAuditLogViewer] = useState(false);
 
   const sessions = useAppStore((s) => s.sessions);
   const activeSessionId = useAppStore((s) => s.activeSessionId);
@@ -248,6 +257,9 @@ function App() {
         connected={connected}
         onNewSession={handleNewSession}
         onDeleteSession={handleDeleteSession}
+        onShowTemplates={() => setShowTemplateSelector(true)}
+        onShowSearch={() => setShowSessionSearch(true)}
+        onShowAuditLogs={() => setShowAuditLogViewer(true)}
       />
 
       <main className="flex flex-1 flex-col ml-[280px] bg-surface-cream">
@@ -363,6 +375,40 @@ function App() {
 
       {showSettingsModal && (
         <SettingsModal onClose={() => setShowSettingsModal(false)} />
+      )}
+
+      {showTemplateSelector && (
+        <TemplateSelector
+          onSelect={(template: SessionTemplate) => {
+            // Clear active session ID to ensure we start a new session
+            useAppStore.getState().setActiveSessionId(null);
+            setPrompt(template.initialPrompt);
+            if (template.suggestedCwd) {
+              setCwd(template.suggestedCwd);
+            }
+            setShowTemplateSelector(false);
+            setShowStartModal(true);
+          }}
+          onClose={() => setShowTemplateSelector(false)}
+        />
+      )}
+
+      {showSessionSearch && (
+        <SessionSearch
+          onSelectSession={(sessionId: string) => {
+            // Load session history
+            sendEvent({ type: "session.history", payload: { sessionId } });
+            setShowSessionSearch(false);
+          }}
+          onClose={() => setShowSessionSearch(false)}
+        />
+      )}
+
+      {showAuditLogViewer && (
+        <AuditLogViewer
+          sessionId={activeSessionId}
+          onClose={() => setShowAuditLogViewer(false)}
+        />
       )}
 
       {globalError && (
