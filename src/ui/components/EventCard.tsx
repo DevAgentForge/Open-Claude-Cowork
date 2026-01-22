@@ -298,6 +298,14 @@ export function MessageCard({
 }) {
   const showIndicator = isLast && isRunning;
 
+  // Debug: log unhandled message types
+  if (!["user_prompt", "system", "result", "assistant", "user"].includes(message.type)) {
+    // Skip stream_event - these are handled by partial message display
+    if (message.type !== "stream_event") {
+      console.log(`[MessageCard] Unhandled type: ${message.type}`, message);
+    }
+  }
+
   if (message.type === "user_prompt") {
     return <UserMessageCard message={message} showIndicator={showIndicator} />;
   }
@@ -328,11 +336,13 @@ export function MessageCard({
       <>
         {contents.map((content: MessageContent, idx: number) => {
           const isLastContent = idx === contents.length - 1;
-          if (content.type === "thinking") {
-            return <AssistantBlockCard key={idx} title="Thinking" text={content.thinking} showIndicator={isLastContent && showIndicator} />;
+          // Handle both { type: "thinking", thinking: "..." } and { thinking: "..." } formats
+          if (content.type === "thinking" || ("thinking" in content && !content.type)) {
+            return <AssistantBlockCard key={idx} title="Thinking" text={(content as any).thinking} showIndicator={isLastContent && showIndicator} />;
           }
-          if (content.type === "text") {
-            return <AssistantBlockCard key={idx} title="Assistant" text={content.text} showIndicator={isLastContent && showIndicator} />;
+          // Handle both { type: "text", text: "..." } and { text: "..." } formats
+          if (content.type === "text" || ("text" in content && !content.type)) {
+            return <AssistantBlockCard key={idx} title="Assistant" text={(content as any).text} showIndicator={isLastContent && showIndicator} />;
           }
           if (content.type === "tool_use") {
             if (content.name === "AskUserQuestion") {

@@ -110,6 +110,15 @@ function App() {
     totalMessages,
   } = useMessageWindow(messages, permissionRequests, activeSessionId);
 
+  // Debug: log when messages change significantly
+  useEffect(() => {
+    const typeCounts = visibleMessages.reduce((acc, item) => {
+      acc[item.message.type] = (acc[item.message.type] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    console.log(`[App] messages=${messages.length}, visible=${visibleMessages.length}, types=`, typeCounts);
+  }, [messages.length, visibleMessages.length]);
+
   // 启动时检查 API 配置
   useEffect(() => {
     if (!apiConfigChecked) {
@@ -288,23 +297,29 @@ function App() {
               </div>
             )}
 
-            {visibleMessages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-20 text-center">
-                <div className="text-lg font-medium text-ink-700">No messages yet</div>
-                <p className="mt-2 text-sm text-muted">Start a conversation with agent cowork</p>
-              </div>
-            ) : (
-              visibleMessages.map((item, idx) => (
+            {(() => {
+              const filteredMessages = visibleMessages.filter(item => item.message.type !== "stream_event");
+
+              if (filteredMessages.length === 0) {
+                return (
+                  <div className="flex flex-col items-center justify-center py-20 text-center">
+                    <div className="text-lg font-medium text-ink-700">No messages yet</div>
+                    <p className="mt-2 text-sm text-muted">Start a conversation with agent cowork</p>
+                  </div>
+                );
+              }
+
+              return filteredMessages.map((item, idx, arr) => (
                 <MessageCard
                   key={`${activeSessionId}-msg-${item.originalIndex}`}
                   message={item.message}
-                  isLast={idx === visibleMessages.length - 1}
+                  isLast={idx === arr.length - 1}
                   isRunning={isRunning}
                   permissionRequest={permissionRequests[0]}
                   onPermissionResult={handlePermissionResult}
                 />
-              ))
-            )}
+              ));
+            })()}
 
             {/* Partial message display with skeleton loading */}
             <div className="partial-message">

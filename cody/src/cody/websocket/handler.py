@@ -131,7 +131,12 @@ class WebSocketHandler:
 
     async def _emit(self, event: ServerEvent) -> None:
         """Emit a server event, with checks for deleted sessions."""
-        logger.info(f"Emitting event: type={event.type}")
+        payload_info = ""
+        if hasattr(event.payload, 'session_id'):
+            payload_info = f", session={event.payload.session_id[:8]}"
+        if hasattr(event.payload, 'status'):
+            payload_info += f", status={event.payload.status}"
+        logger.info(f"Emitting event: type={event.type}{payload_info}")
         # Skip events for deleted sessions
         if event.type in (
             "session.status",

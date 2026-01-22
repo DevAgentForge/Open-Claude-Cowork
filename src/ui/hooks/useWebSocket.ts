@@ -10,6 +10,7 @@ let globalWs: WebSocket | null = null;
 let globalConnecting = false;
 let globalEventHandler: ((event: ServerEvent) => void) | null = null;
 let connectionCount = 0;
+let lastActivityTime = 0;
 
 export function useWebSocket(onEvent: (event: ServerEvent) => void) {
   const [connected, setConnected] = useState(false);
@@ -74,7 +75,11 @@ export function useWebSocket(onEvent: (event: ServerEvent) => void) {
 
     ws.onmessage = (event) => {
       try {
+        lastActivityTime = Date.now();
         const data = JSON.parse(event.data) as ServerEvent;
+        if (data.type === "stream.message" || data.type === "session.status" || data.type === "session.history") {
+          console.log(`[WS] Received: ${data.type}`);
+        }
         // Only call the handler once, regardless of how many hook instances exist
         globalEventHandler?.(data);
       } catch (error) {
@@ -115,11 +120,16 @@ export function useWebSocket(onEvent: (event: ServerEvent) => void) {
         clearTimeout(reconnectTimeoutRef.current);
       }
       // Only close if this was the owner and no other connections need it
-      if (isOwnerRef.current && connectionCount === 0 && globalWs) {
+      // Also don't close if there was recent activity (indicates StrictMode double-render)
+      const timeSinceActivity = Date.now() - lastActivityTime;
+      const isRecentActivity = timeSinceActivity < 1000;
+      if (isOwnerRef.current && connectionCount === 0 && globalWs && !isRecentActivity) {
         console.log("[WebSocket] Closing connection (no more users)");
         globalWs.close(1000);
         globalWs = null;
         globalEventHandler = null;
+      } else if (isOwnerRef.current && connectionCount === 0 && isRecentActivity) {
+        console.log("[WebSocket] Keeping connection alive (recent activity, likely StrictMode)");
       }
     };
   }, [connect]);

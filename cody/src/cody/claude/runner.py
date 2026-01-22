@@ -124,16 +124,21 @@ class ClaudeRunner:
                             if message_dict.get("subtype") == "success"
                             else SessionStatus.ERROR
                         )
+                        logger.info(f"Result message received, sending status={status}")
                         await self.on_status(status, None)
 
                 logger.info(f"Message loop completed, received {message_count} messages")
 
             # Query completed normally
+            logger.info(f"Checking final status: session.status={self.session.status}, abort_event={self._abort_event.is_set()}")
             if (
                 self.session.status == SessionStatus.RUNNING
                 and not self._abort_event.is_set()
             ):
+                logger.info("Sending final COMPLETED status")
                 await self.on_status(SessionStatus.COMPLETED, None)
+            else:
+                logger.info("Skipping final COMPLETED status (already sent or aborted)")
 
         except asyncio.CancelledError:
             # Task was cancelled (abort)

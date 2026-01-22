@@ -172,8 +172,8 @@ app.on("ready", async () => {
 
     if (isDev()) {
         mainWindow.loadURL(`http://localhost:${DEV_PORT}`);
-        // Uncomment to open DevTools in development:
-        // mainWindow.webContents.openDevTools();
+        // Open DevTools in development
+        mainWindow.webContents.openDevTools();
     } else {
         mainWindow.loadFile(getUIPath());
     }

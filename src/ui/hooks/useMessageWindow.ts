@@ -2,8 +2,9 @@ import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import type { StreamMessage } from "../types";
 import type { PermissionRequest } from "../store/useAppStore";
 
-const VISIBLE_WINDOW_SIZE = 3;
-const LOAD_BATCH_SIZE = 3;
+// Show all messages - no windowing limit
+const VISIBLE_WINDOW_SIZE = Infinity;
+const LOAD_BATCH_SIZE = 100;
 
 export interface IndexedMessage {
     originalIndex: number;

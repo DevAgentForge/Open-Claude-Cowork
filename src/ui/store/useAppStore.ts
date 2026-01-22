@@ -104,15 +104,27 @@ export const useAppStore = create<AppState>((set, get) => ({
         const nextSessions: Record<string, SessionView> = {};
         for (const session of event.payload.sessions) {
           const existing = state.sessions[session.id] ?? createSession(session.id);
+          const existingMsgCount = existing.messages.length;
+
+          // Preserve ALL data from existing session if it's hydrated or has messages
+          // session.list only provides metadata, not messages
+          // This prevents session.list from wiping live streamed messages
           nextSessions[session.id] = {
             ...existing,
-            status: session.status,
-            title: session.title,
-            cwd: session.cwd,
-            createdAt: session.createdAt,
-            updatedAt: session.updatedAt
+            // Only update metadata fields, keep messages and hydrated status
+            status: existing.hydrated && existing.status !== "idle" ? existing.status : session.status,
+            title: session.title || existing.title,
+            cwd: session.cwd || existing.cwd,
+            createdAt: session.createdAt ?? existing.createdAt,
+            updatedAt: session.updatedAt ?? existing.updatedAt
           };
+
+          // Log any potential issues
+          if (existingMsgCount > 0) {
+            console.log(`[Store] session.list: ${session.id.slice(0,8)} preserving ${existingMsgCount} messages (hydrated=${existing.hydrated})`);
+          }
         }
+        console.log(`[Store] session.list: ${event.payload.sessions.length} sessions`);
 
         set({ sessions: nextSessions, sessionsLoaded: true });
 
@@ -148,15 +160,23 @@ export const useAppStore = create<AppState>((set, get) => ({
         const { sessionId, messages, status } = event.payload;
         set((state) => {
           const existing = state.sessions[sessionId] ?? createSession(sessionId);
-          // Don't replace messages if session is running - merge instead
-          // This prevents streaming messages from being lost
-          const mergedMessages = existing.status === "running" && existing.messages.length > messages.length
-            ? existing.messages  // Keep streaming messages if more than history
-            : messages;
+
+          // Keep existing messages only if we have MORE messages than incoming
+          // OR if we're already hydrated (meaning we've received live data)
+          // Don't just check status - a "completed" session from session.list
+          // may have empty messages that need to be populated from history
+          const hasMoreExistingMessages = existing.messages.length > messages.length;
+          const shouldKeepExisting = hasMoreExistingMessages || (existing.hydrated && existing.messages.length > 0);
+
+          const mergedMessages = shouldKeepExisting ? existing.messages : messages;
+          const finalStatus = shouldKeepExisting ? existing.status : status;
+
+          console.log(`[Store] session.history: existing=${existing.messages.length}, incoming=${messages.length}, keeping=${shouldKeepExisting ? 'existing' : 'incoming'}`);
+
           return {
             sessions: {
               ...state.sessions,
-              [sessionId]: { ...existing, status, messages: mergedMessages, hydrated: true }
+              [sessionId]: { ...existing, status: finalStatus, messages: mergedMessages, hydrated: true }
             }
           };
         });
@@ -165,11 +185,14 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       case "session.status": {
         const { sessionId, status, title, cwd } = event.payload;
+        console.log(`[Store] session.status: ${sessionId.slice(0,8)} -> ${status}, msgs=${state.sessions[sessionId]?.messages.length ?? 0}`);
         set((state) => {
           const existing = state.sessions[sessionId] ?? createSession(sessionId);
-          // Mark as hydrated if this is a new session that's starting to run
-          // This prevents history request from clearing streaming messages
-          const isNewSession = !existing.title && title;
+          // Mark as hydrated when session is running, completed, or error
+          // This prevents history from overwriting live/recent data
+          // Only "idle" sessions should potentially receive history updates
+          const isActiveStatus = status === "running" || status === "completed" || status === "error";
+          const shouldMarkHydrated = isActiveStatus || existing.hydrated;
           return {
             sessions: {
               ...state.sessions,
@@ -179,8 +202,7 @@ export const useAppStore = create<AppState>((set, get) => ({
                 title: title ?? existing.title,
                 cwd: cwd ?? existing.cwd,
                 updatedAt: Date.now(),
-                // Mark as hydrated for new sessions to prevent history overwrite
-                hydrated: isNewSession ? true : existing.hydrated
+                hydrated: shouldMarkHydrated
               }
             }
           };
@@ -230,10 +252,14 @@ export const useAppStore = create<AppState>((set, get) => ({
           if (lastMessage && JSON.stringify(lastMessage) === JSON.stringify(message)) {
             return {}; // Skip duplicate
           }
+          const newMessages = [...existing.messages, message];
+          if (newMessages.length % 10 === 0) {
+            console.log(`[Store] Messages: ${newMessages.length}`);
+          }
           return {
             sessions: {
               ...state.sessions,
-              [sessionId]: { ...existing, messages: [...existing.messages, message] }
+              [sessionId]: { ...existing, messages: newMessages }
             }
           };
         });
