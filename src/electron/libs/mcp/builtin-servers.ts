@@ -154,6 +154,7 @@ export async function checkNodeEnvironment(): Promise<{
         const version = stdout.trim();
         return { available: true, version };
     } catch (error) {
+        console.error(error);
         return {
             available: false,
             error: "Node.js 环境未检测到。请确保已安装 Node.js 并添加到系统 PATH 中。",
@@ -176,6 +177,7 @@ export async function checkNpxAvailable(): Promise<{
         await execAsync("npx --version");
         return { available: true };
     } catch (error) {
+        console.error(error);
         return {
             available: false,
             error: "npx 命令不可用。请确保已安装 npm 并添加到系统 PATH 中。",
