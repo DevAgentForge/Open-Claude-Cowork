@@ -7,11 +7,17 @@ interface SidebarProps {
   connected: boolean;
   onNewSession: () => void;
   onDeleteSession: (sessionId: string) => void;
+  onShowTemplates: () => void;
+  onShowSearch: () => void;
+  onShowAuditLogs: () => void;
 }
 
 export function Sidebar({
   onNewSession,
-  onDeleteSession
+  onDeleteSession,
+  onShowTemplates,
+  onShowSearch,
+  onShowAuditLogs
 }: SidebarProps) {
   const sessions = useAppStore((state) => state.sessions);
   const activeSessionId = useAppStore((state) => state.activeSessionId);
@@ -84,11 +90,53 @@ export function Sidebar({
           className="rounded-xl border border-ink-900/10 bg-surface px-4 py-3 text-sm text-ink-700 hover:bg-surface-tertiary hover:border-ink-900/20 transition-colors"
           onClick={() => useAppStore.getState().setShowSettingsModal(true)}
           aria-label="Settings"
+          title="Settings"
         >
           <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.8">
             <circle cx="12" cy="12" r="3" />
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.08a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.08a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
           </svg>
+        </button>
+      </div>
+
+      {/* New Feature Buttons */}
+      <div className="grid grid-cols-3 gap-2">
+        <button
+          className="rounded-xl border border-ink-900/10 bg-surface px-3 py-2.5 text-xs font-medium text-ink-700 hover:bg-surface-tertiary hover:border-ink-900/20 transition-colors flex flex-col items-center gap-1"
+          onClick={onShowTemplates}
+          title="Templates"
+        >
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <path d="M4 5h16v14H4z" />
+            <path d="M9 3v18" />
+            <path d="M15 3v18" />
+          </svg>
+          <span>Templates</span>
+        </button>
+        <button
+          className="rounded-xl border border-ink-900/10 bg-surface px-3 py-2.5 text-xs font-medium text-ink-700 hover:bg-surface-tertiary hover:border-ink-900/20 transition-colors flex flex-col items-center gap-1"
+          onClick={onShowSearch}
+          title="Search"
+        >
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <circle cx="11" cy="11" r="8" />
+            <path d="M21 21l-4.35-4.35" />
+          </svg>
+          <span>Search</span>
+        </button>
+        <button
+          className="rounded-xl border border-ink-900/10 bg-surface px-3 py-2.5 text-xs font-medium text-ink-700 hover:bg-surface-tertiary hover:border-ink-900/20 transition-colors flex flex-col items-center gap-1"
+          onClick={onShowAuditLogs}
+          title="Audit Logs"
+        >
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <path d="M14 2v6h6" />
+            <path d="M16 13H8" />
+            <path d="M16 17H8" />
+            <path d="M10 9H8" />
+          </svg>
+          <span>Audit</span>
         </button>
       </div>
       <div className="flex flex-col gap-2 overflow-y-auto">

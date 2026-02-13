@@ -8,7 +8,7 @@ export type UserPromptMessage = {
 
 export type StreamMessage = SDKMessage | UserPromptMessage;
 
-export type SessionStatus = "idle" | "running" | "completed" | "error";
+export type SessionStatus = "idle" | "running" | "completed" | "error" | "stopped";
 
 export type SessionInfo = {
   id: string;
