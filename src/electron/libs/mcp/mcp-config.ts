@@ -40,7 +40,7 @@ export interface MCPServerConfig {
     userDataDir?: string;
     /** 
      * 是否跨对话保持浏览器（仅对浏览器工具有效）
-     * 启用后将使用 SSE 模式运行 MCP Server，浏览器状态可跨多次对话保持
+     * 启用后将通过 CDP 连接到独立运行的浏览器进程，浏览器状态和页面可跨多次对话保持
      */
     persistBrowser?: boolean;
     /** 创建时间 */

@@ -10,6 +10,7 @@ import { getCurrentApiConfig } from "./libs/claude-settings.js";
 import type { ClientEvent } from "./types.js";
 import "./libs/claude-settings.js";
 import { setupMCPHandlers, cleanupMCP } from "./libs/mcp/mcp-ipc-handlers.js";
+import { setupAgentHandlers, cleanupAgents } from "./libs/agents/agent-ipc-handlers.js";
 
 let cleanupComplete = false;
 let mainWindow: BrowserWindow | null = null;
@@ -35,6 +36,7 @@ function cleanup(): void {
     stopPolling();
     cleanupAllSessions();
     cleanupMCP();
+    cleanupAgents();
     killViteDevServer();
 }
 
@@ -140,4 +142,7 @@ app.on("ready", () => {
 
     // Setup MCP handlers
     setupMCPHandlers(mainWindow!);
+
+    // Setup Agent handlers
+    setupAgentHandlers(mainWindow!);
 })

@@ -32,6 +32,19 @@ type MCPServerInfo = {
     errorMessage?: string;
 }
 
+/** AI 助手信息 */
+type SubAgentInfo = {
+    id: string;
+    name: string;
+    description: string;
+    prompt: string;
+    enabled: boolean;
+    model: string;
+    isBuiltin: boolean;
+    createdAt: string;
+    updatedAt: string;
+}
+
 /** 浏览器 MCP 配置选项 */
 type MCPBrowserConfigOptions = {
     /** 浏览器运行模式：visible（可见）或 headless（无界面） */
@@ -72,6 +85,12 @@ type EventPayloadMapping = {
     "mcp-delete-server": { success: boolean };
     "mcp-update-browser-config": MCPBrowserConfigResult;
     "mcp-get-default-user-data-dir": string;
+    // Agent APIs
+    "agents-get-list": SubAgentInfo[];
+    "agents-add": { success: boolean; agentId: string };
+    "agents-update": { success: boolean };
+    "agents-delete": { success: boolean };
+    "agents-toggle": { success: boolean };
 }
 
 type MCPServerFormData = {
@@ -108,5 +127,12 @@ interface Window {
         // 浏览器 MCP 配置 API
         updateBrowserConfig: (options: MCPBrowserConfigOptions) => Promise<MCPBrowserConfigResult>;
         getDefaultUserDataDir: () => Promise<string>;
+        // Agent APIs
+        getAgents: () => Promise<SubAgentInfo[]>;
+        addAgent: (agent: { name: string; description: string; prompt: string; model?: string }) => Promise<{ success: boolean; agentId: string }>;
+        updateAgent: (agentId: string, updates: { name?: string; description?: string; prompt?: string; model?: string }) => Promise<{ success: boolean }>;
+        deleteAgent: (agentId: string) => Promise<{ success: boolean }>;
+        toggleAgent: (agentId: string, enabled: boolean) => Promise<{ success: boolean }>;
+        onAgentsConfigChange: (callback: () => void) => UnsubscribeFunction;
     }
 }

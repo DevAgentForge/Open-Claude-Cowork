@@ -25,3 +25,7 @@ dist-electron
 *.sw?
 
 .env
+
+.codebuddy
+docs/
+.vscode

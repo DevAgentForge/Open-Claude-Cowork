@@ -73,10 +73,13 @@ function fixBuiltinServerConfigs(config: MCPConfigState): MCPConfigState {
             const browserMode: MCPBrowserMode = server.browserMode || "visible";
             const latestConfig = createPlaywrightServerConfig(browserMode);
 
-            // 保留用户的启用状态和时间戳，但更新命令和参数
+            // 保留用户的启用状态、浏览器持久化设置和时间戳，但更新命令和参数
             return {
                 ...latestConfig,
                 enabled: server.enabled,
+                browserMode: server.browserMode ?? latestConfig.browserMode,
+                userDataDir: server.userDataDir ?? latestConfig.userDataDir,
+                persistBrowser: server.persistBrowser ?? latestConfig.persistBrowser,
                 createdAt: server.createdAt || latestConfig.createdAt,
                 updatedAt: latestConfig.updatedAt,
             };

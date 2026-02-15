@@ -198,10 +198,10 @@ function BrowserConfigPanel({ server, onClose, onSave }: BrowserConfigPanelProps
                                     <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
                                 </svg>
                                 <div className="text-xs text-ink-700">
-                                    <span className="font-medium">SSE 持久化模式已启用</span>
+                                    <span className="font-medium">CDP 持久化模式已启用</span>
                                     <p className="mt-1 text-muted">
-                                        浏览器将作为独立服务运行，多次对话共享同一个浏览器实例。
-                                        页面状态、元素引用都会保持。
+                                        浏览器将作为独立进程运行，通过 CDP 协议连接。多次对话共享同一个浏览器实例，
+                                        页面状态保持不变，且可随时手动介入操作。
                                     </p>
                                 </div>
                             </div>

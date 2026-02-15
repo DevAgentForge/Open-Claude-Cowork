@@ -25,13 +25,21 @@ export function getDefaultUserDataDir(): string {
  * 构建 Playwright MCP Server 的命令参数
  * @param browserMode 浏览器运行模式
  * @param userDataDir 用户数据目录（可选）
+ * @param cdpEndpoint CDP 端点地址（可选，启用后通过 CDP 连接已有浏览器）
  */
 export function buildPlaywrightArgs(
     browserMode: MCPBrowserMode = "visible",
-    userDataDir?: string
+    userDataDir?: string,
+    cdpEndpoint?: string
 ): string[] {
     // 基础参数：使用 -y 自动确认下载
     const args: string[] = ["-y", "@playwright/mcp@latest"];
+
+    // CDP 模式：连接到已有浏览器，不需要 headless 和 userDataDir 参数
+    if (cdpEndpoint) {
+        args.push(`--cdp-endpoint=${cdpEndpoint}`);
+        return args;
+    }
 
     // headless 模式
     if (browserMode === "headless") {
@@ -50,12 +58,14 @@ export function buildPlaywrightArgs(
  * 创建 Playwright MCP Server 配置
  * @param browserMode 浏览器运行模式
  * @param userDataDir 用户数据目录（留空则不持久化）
- * @param persistBrowser 是否跨对话保持浏览器
+ * @param persistBrowser 是否跨对话保持浏览器（CDP 模式）
+ * @param cdpEndpoint CDP 端点地址（persistBrowser 时使用）
  */
 export function createPlaywrightServerConfig(
     browserMode: MCPBrowserMode = "visible",
     userDataDir?: string,
-    persistBrowser: boolean = false
+    persistBrowser: boolean = false,
+    cdpEndpoint?: string
 ): MCPServerConfig {
     const now = new Date().toISOString();
 
@@ -64,7 +74,7 @@ export function createPlaywrightServerConfig(
         name: "浏览器自动化",
         description: "通过 Playwright 控制浏览器，支持网页操作、信息采集、自动填表等任务",
         command: "npx",
-        args: buildPlaywrightArgs(browserMode, userDataDir),
+        args: buildPlaywrightArgs(browserMode, userDataDir, cdpEndpoint),
         transportType: "stdio",
         enabled: false,
         isBuiltin: true,
@@ -99,12 +109,14 @@ export function isBuiltinServer(serverId: string): boolean {
  * @param browserMode 新的浏览器模式
  * @param userDataDir 新的用户数据目录（undefined 表示不修改，null 表示清除）
  * @param persistBrowser 是否跨对话保持浏览器（undefined 表示不修改）
+ * @param cdpEndpoint CDP 端点地址（persistBrowser 时传入）
  */
 export function updatePlaywrightConfig(
     config: MCPServerConfig,
     browserMode: MCPBrowserMode,
     userDataDir?: string | null,
-    persistBrowser?: boolean
+    persistBrowser?: boolean,
+    cdpEndpoint?: string
 ): MCPServerConfig {
     // 如果 userDataDir 是 undefined，保持原值；如果是 null，则清除
     const newUserDataDir = userDataDir === undefined
@@ -116,9 +128,12 @@ export function updatePlaywrightConfig(
         ? config.persistBrowser
         : persistBrowser;
 
+    // CDP 模式下不需要 userDataDir 和 browserMode 传给 Playwright（由浏览器本身管理）
+    const effectiveCdpEndpoint = newPersistBrowser ? cdpEndpoint : undefined;
+
     return {
         ...config,
-        args: buildPlaywrightArgs(browserMode, newUserDataDir),
+        args: buildPlaywrightArgs(browserMode, newUserDataDir, effectiveCdpEndpoint),
         browserMode,
         userDataDir: newUserDataDir,
         persistBrowser: newPersistBrowser,

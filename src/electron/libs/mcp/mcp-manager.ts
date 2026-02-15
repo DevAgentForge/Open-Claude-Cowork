@@ -10,24 +10,23 @@ import {
     MCPConfigChangeEvent,
 } from "./mcp-config.js";
 import { loadMCPConfig, saveMCPConfig, getEnabledServers } from "./mcp-store.js";
-import { getPlaywrightSSEServer, PlaywrightSSEServer } from "./playwright-sse-server.js";
-import { PLAYWRIGHT_SERVER_ID } from "./builtin-servers.js";
+import { getBrowserProcessManager, BrowserProcessManager } from "./browser-process-manager.js";
+import { PLAYWRIGHT_SERVER_ID, buildPlaywrightArgs } from "./builtin-servers.js";
 
 /** MCP Manager 事件类型 */
 export interface MCPManagerEvents {
     "config-changed": (event: MCPConfigChangeEvent) => void;
 }
 
-/** SDK MCP Server 配置类型（支持 stdio 和 SSE） */
+/** SDK MCP Server 配置类型（统一使用 stdio） */
 export type SDKMCPServerConfig =
-    | { type?: 'stdio'; command: string; args?: string[]; env?: Record<string, string> }
-    | { type: 'sse'; url: string; headers?: Record<string, string> };
+    { type?: 'stdio'; command: string; args?: string[]; env?: Record<string, string> };
 
 /**
  * MCP 配置管理器
  * 单例模式，管理 MCP Server 配置
  * 注意：Server 进程由 Claude SDK 自动启动和管理（stdio 模式）
- * 或由 PlaywrightSSEServer 独立管理（SSE 模式）
+ * 持久化浏览器通过 CDP 连接到由 BrowserProcessManager 管理的 Chrome 进程
  */
 export class MCPManager extends EventEmitter {
     private static instance: MCPManager | null = null;
@@ -35,13 +34,13 @@ export class MCPManager extends EventEmitter {
     /** 当前配置 */
     private config: MCPConfigState;
 
-    /** Playwright SSE Server 实例 */
-    private sseServer: PlaywrightSSEServer;
+    /** 浏览器进程管理器实例 */
+    private browserManager: BrowserProcessManager;
 
     private constructor() {
         super();
         this.config = loadMCPConfig();
-        this.sseServer = getPlaywrightSSEServer();
+        this.browserManager = getBrowserProcessManager();
     }
 
     /** 获取单例实例 */
@@ -91,78 +90,78 @@ export class MCPManager extends EventEmitter {
     }
 
     /**
-     * 检查是否需要启动 SSE Server
+     * 检查是否需要启动持久化浏览器
      */
-    public needsSSEServer(): boolean {
+    public needsBrowser(): boolean {
         const playwright = this.getPlaywrightConfig();
         return !!playwright?.enabled && !!playwright?.persistBrowser;
     }
 
     /**
-     * 确保 SSE Server 正在运行（如果配置了持久化）
-     * @returns SSE URL 或 undefined
+     * 确保持久化浏览器正在运行（如果配置了 persistBrowser）
+     * @returns CDP 端点地址或 undefined
      */
-    public async ensureSSEServerRunning(): Promise<string | undefined> {
+    public async ensureBrowserRunning(): Promise<string | undefined> {
         const playwright = this.getPlaywrightConfig();
 
         if (!playwright?.enabled || !playwright?.persistBrowser) {
-            // 如果不需要 SSE 模式，停止可能运行的 Server
-            if (this.sseServer.isRunning()) {
-                console.log('[mcp-manager] Stopping SSE server (persistence disabled)');
-                await this.sseServer.stop();
+            // 如果不需要持久化浏览器，停止可能运行的浏览器进程
+            if (this.browserManager.isRunning()) {
+                console.log('[mcp-manager] Stopping browser (persistence disabled)');
+                await this.browserManager.stop();
             }
             return undefined;
         }
 
-        // 如果已经在运行，直接返回 URL
-        if (this.sseServer.isRunning()) {
-            return this.sseServer.getSSEUrl();
+        // 如果已经在运行，直接返回端点
+        if (this.browserManager.isRunning()) {
+            return this.browserManager.getCDPEndpoint();
         }
 
-        // 启动 SSE Server
-        console.log('[mcp-manager] Starting SSE server for persistent browser');
+        // 启动浏览器
+        console.log('[mcp-manager] Starting browser for CDP persistent mode');
         try {
-            const url = await this.sseServer.start({
+            const endpoint = await this.browserManager.start({
                 browserMode: playwright.browserMode || 'visible',
                 userDataDir: playwright.userDataDir,
             });
-            console.log(`[mcp-manager] SSE server started at ${url}`);
-            return url;
+            console.log(`[mcp-manager] Browser started, CDP endpoint: ${endpoint}`);
+            return endpoint;
         } catch (error) {
-            console.error('[mcp-manager] Failed to start SSE server:', error);
+            console.error('[mcp-manager] Failed to start browser:', error);
             throw error;
         }
     }
 
     /**
-     * 停止 SSE Server
+     * 停止持久化浏览器
      */
-    public async stopSSEServer(): Promise<void> {
-        if (this.sseServer.isRunning()) {
-            console.log('[mcp-manager] Stopping SSE server');
-            await this.sseServer.stop();
+    public async stopBrowser(): Promise<void> {
+        if (this.browserManager.isRunning()) {
+            console.log('[mcp-manager] Stopping browser');
+            await this.browserManager.stop();
         }
     }
 
     /**
-     * 获取 SSE Server 状态
+     * 获取浏览器状态
      */
-    public getSSEServerStatus(): {
+    public getBrowserStatus(): {
         running: boolean;
-        url?: string;
+        endpoint?: string;
         error?: string;
     } {
         return {
-            running: this.sseServer.isRunning(),
-            url: this.sseServer.getSSEUrl(),
-            error: this.sseServer.getErrorMessage(),
+            running: this.browserManager.isRunning(),
+            endpoint: this.browserManager.getCDPEndpoint(),
+            error: this.browserManager.getErrorMessage(),
         };
     }
 
     /**
      * 构建用于 Claude SDK 的 MCP Servers 配置
      * 返回格式符合 SDK 的 mcpServers 选项
-     * 如果 Playwright 配置了持久化浏览器，将使用 SSE URL
+     * 如果 Playwright 配置了持久化浏览器，将使用 CDP 模式（stdio + --cdp-endpoint 参数）
      */
     public buildSDKConfig(): Record<string, SDKMCPServerConfig> {
         const mcpServers: Record<string, SDKMCPServerConfig> = {};
@@ -170,18 +169,19 @@ export class MCPManager extends EventEmitter {
         for (const server of this.config.servers) {
             if (!server.enabled) continue;
 
-            // 检查是否是 Playwright 且配置了持久化
+            // 检查是否是 Playwright 且配置了持久化（CDP 模式）
             if (server.id === PLAYWRIGHT_SERVER_ID && server.persistBrowser) {
-                const sseUrl = this.sseServer.getSSEUrl();
-                if (sseUrl) {
-                    // 使用 SSE URL 连接
+                const cdpEndpoint = this.browserManager.getCDPEndpoint();
+                if (cdpEndpoint) {
+                    // 使用 stdio 模式 + --cdp-endpoint 参数连接到持久化浏览器
                     mcpServers[server.id] = {
-                        type: 'sse',
-                        url: sseUrl,
+                        type: 'stdio',
+                        command: server.command,
+                        args: buildPlaywrightArgs(server.browserMode, undefined, cdpEndpoint),
                     };
-                    console.log(`[mcp-manager] Configured server: ${server.id} (SSE mode at ${sseUrl})`);
+                    console.log(`[mcp-manager] Configured server: ${server.id} (CDP mode at ${cdpEndpoint})`);
                 } else {
-                    console.log(`[mcp-manager] Skipping server ${server.id}: SSE server not running`);
+                    console.log(`[mcp-manager] Skipping server ${server.id}: browser not running`);
                 }
                 continue;
             }
@@ -207,11 +207,11 @@ export class MCPManager extends EventEmitter {
 
     /**
      * 构建用于 Claude SDK 的 MCP Servers 配置（异步版本）
-     * 会自动启动 SSE Server（如果需要）
+     * 会自动启动持久化浏览器（如果需要）
      */
     public async buildSDKConfigAsync(): Promise<Record<string, SDKMCPServerConfig>> {
-        // 先确保 SSE Server 运行（如果需要）
-        await this.ensureSSEServerRunning();
+        // 先确保浏览器运行（如果需要）
+        await this.ensureBrowserRunning();
 
         // 然后构建配置
         return this.buildSDKConfig();
@@ -221,7 +221,7 @@ export class MCPManager extends EventEmitter {
      * 清理所有资源（应用退出时调用）
      */
     public async cleanup(): Promise<void> {
-        await this.sseServer.cleanup();
+        await this.browserManager.cleanup();
     }
 }
 

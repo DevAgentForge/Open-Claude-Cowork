@@ -264,17 +264,17 @@ export function setupMCPHandlers(win: BrowserWindow): void {
         config = updateMCPServer(config, PLAYWRIGHT_SERVER_ID, updatedServer);
         manager.updateConfig(config);
 
-        // 如果启用了跨对话保持，尝试启动 SSE Server
+        // 如果启用了跨对话保持，尝试启动持久化浏览器（CDP 模式）
         if (updatedServer.persistBrowser && updatedServer.enabled) {
             try {
-                await manager.ensureSSEServerRunning();
+                await manager.ensureBrowserRunning();
             } catch (error) {
-                console.error("Failed to start SSE server:", error);
+                console.error("Failed to start browser:", error);
                 // 不抛出错误，配置已保存，下次对话时会重试
             }
         } else if (!updatedServer.persistBrowser) {
-            // 如果禁用了跨对话保持，停止 SSE Server
-            await manager.stopSSEServer();
+            // 如果禁用了跨对话保持，停止持久化浏览器
+            await manager.stopBrowser();
         }
 
         return {

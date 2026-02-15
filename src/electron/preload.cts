@@ -67,6 +67,23 @@ electron.contextBridge.exposeInMainWorld("electron", {
     }) => ipcInvoke("mcp-update-browser-config", options),
     getDefaultUserDataDir: () =>
         ipcInvoke("mcp-get-default-user-data-dir"),
+
+    // Agent APIs
+    getAgents: () =>
+        ipcInvoke("agents-get-list"),
+    addAgent: (agent: { name: string; description: string; prompt: string; model?: string }) =>
+        ipcInvoke("agents-add", agent),
+    updateAgent: (agentId: string, updates: { name?: string; description?: string; prompt?: string; model?: string }) =>
+        ipcInvoke("agents-update", agentId, updates),
+    deleteAgent: (agentId: string) =>
+        ipcInvoke("agents-delete", agentId),
+    toggleAgent: (agentId: string, enabled: boolean) =>
+        ipcInvoke("agents-toggle", agentId, enabled),
+    onAgentsConfigChange: (callback: () => void) => {
+        const cb = () => callback();
+        electron.ipcRenderer.on("agents-config-changed", cb);
+        return () => electron.ipcRenderer.off("agents-config-changed", cb);
+    },
 } satisfies Window['electron'])
 
 function ipcInvoke<Key extends keyof EventPayloadMapping>(key: Key, ...args: any[]): Promise<EventPayloadMapping[Key]> {

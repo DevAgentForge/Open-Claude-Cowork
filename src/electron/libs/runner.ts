@@ -5,6 +5,7 @@ import type { Session } from "./session-store.js";
 import { getCurrentApiConfig, buildEnvForConfig, getClaudeCodePath } from "./claude-settings.js";
 import { getEnhancedEnv } from "./util.js";
 import { getMCPManager } from "./mcp/mcp-manager.js";
+import { getAgentManager } from "./agents/agent-manager.js";
 
 
 export type RunnerOptions = {
@@ -80,6 +81,14 @@ export async function runClaude(options: RunnerOptions): Promise<RunnerHandle> {
         console.log('[MCP] No MCP servers configured');
       }
 
+      // 构建已启用的 Sub Agents 配置
+      const agentManager = getAgentManager();
+      const agents = agentManager.buildSDKAgentsConfig();
+
+      if (agents) {
+        console.log(`[Agents] Configured ${Object.keys(agents).length} sub agent(s):`, Object.keys(agents));
+      }
+
       const q = query({
         prompt,
         options: {
@@ -93,6 +102,8 @@ export async function runClaude(options: RunnerOptions): Promise<RunnerHandle> {
           allowDangerouslySkipPermissions: true,
           // 注入 MCP Servers 配置
           mcpServers: mcpServerCount > 0 ? mcpServers : undefined,
+          // 注入已启用的 Sub Agents
+          agents,
           canUseTool: async (toolName, input, { signal }) => {
             // For AskUserQuestion, we need to wait for user response
             if (toolName === "AskUserQuestion") {

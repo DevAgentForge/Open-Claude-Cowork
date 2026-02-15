@@ -12,6 +12,7 @@
  * - mcp-manager: 配置管理器
  * - mcp-ipc-handlers: IPC 处理器
  * - builtin-servers: 内置 Server 配置
+ * - browser-process-manager: Chrome 浏览器进程管理（CDP 模式）
  */
 
 // ============ 类型定义 ============
@@ -65,6 +66,10 @@ export {
     checkNpxAvailable,
     preflightPlaywrightCheck,
 } from "./builtin-servers.js";
+
+// ============ 浏览器进程管理 ============
+export { BrowserProcessManager, getBrowserProcessManager } from "./browser-process-manager.js";
+export type { BrowserProcessStatus, BrowserProcessConfig } from "./browser-process-manager.js";
 
 // ============ IPC 处理器 ============
 export { setupMCPHandlers, cleanupMCP } from "./mcp-ipc-handlers.js";

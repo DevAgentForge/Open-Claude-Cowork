@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { APIConfigPanel } from "./APIConfigPanel";
 import { MCPToolsPanel } from "./MCPToolsPanel";
+import { AgentsPanel } from "./AgentsPanel";
 
 /** Tab 类型定义 */
-type SettingsTab = "api" | "mcp";
+type SettingsTab = "api" | "mcp" | "agents";
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -29,6 +30,16 @@ const TABS: { id: SettingsTab; label: string; icon: JSX.Element }[] = [
         <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
         <line x1="8" y1="21" x2="16" y2="21" />
         <line x1="12" y1="17" x2="12" y2="21" />
+      </svg>
+    ),
+  },
+  {
+    id: "agents",
+    label: "AI 助手",
+    icon: (
+      <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
       </svg>
     ),
   },
@@ -78,6 +89,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
         <div className="flex-1 overflow-y-auto px-6 py-5">
           {activeTab === "api" && <APIConfigPanel onSuccess={onClose} />}
           {activeTab === "mcp" && <MCPToolsPanel />}
+          {activeTab === "agents" && <AgentsPanel />}
         </div>
       </div>
     </div>
