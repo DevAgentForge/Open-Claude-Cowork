@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from "react";
 import type { ClientEvent } from "../types";
 import { useAppStore } from "../store/useAppStore";
 
-const DEFAULT_ALLOWED_TOOLS = "Read,Edit,Bash";
+const DEFAULT_ALLOWED_TOOLS = "Read,Edit,Bash,WebSearch,WebFetch";
 const MAX_ROWS = 12;
 const LINE_HEIGHT = 21;
 const MAX_HEIGHT = MAX_ROWS * LINE_HEIGHT;
