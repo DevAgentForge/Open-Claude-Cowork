@@ -187,6 +187,7 @@ const ToolUseCard = ({ messageContent, showIndicator = false }: { messageContent
       case "Glob": case "Grep": return input?.pattern || null;
       case "Task": return input?.description || null;
       case "WebFetch": return input?.url || null;
+      case "WebSearch": return input?.query || null;
       default: return null;
     }
   };

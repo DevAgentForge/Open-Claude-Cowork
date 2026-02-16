@@ -9,6 +9,8 @@ import { saveApiConfig } from "./libs/config-store.js";
 import { getCurrentApiConfig } from "./libs/claude-settings.js";
 import type { ClientEvent } from "./types.js";
 import "./libs/claude-settings.js";
+import { setupMCPHandlers, cleanupMCP } from "./libs/mcp/mcp-ipc-handlers.js";
+import { setupAgentHandlers, cleanupAgents } from "./libs/agents/agent-ipc-handlers.js";
 
 let cleanupComplete = false;
 let mainWindow: BrowserWindow | null = null;
@@ -33,6 +35,8 @@ function cleanup(): void {
     globalShortcut.unregisterAll();
     stopPolling();
     cleanupAllSessions();
+    cleanupMCP();
+    cleanupAgents();
     killViteDevServer();
 }
 
@@ -129,10 +133,16 @@ app.on("ready", () => {
             saveApiConfig(config);
             return { success: true };
         } catch (error) {
-            return { 
-                success: false, 
-                error: error instanceof Error ? error.message : String(error) 
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : String(error)
             };
         }
     });
+
+    // Setup MCP handlers
+    setupMCPHandlers(mainWindow!);
+
+    // Setup Agent handlers
+    setupAgentHandlers(mainWindow!);
 })
