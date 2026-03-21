@@ -14,7 +14,7 @@
 
 [![MiniMax](assets/partners/minimax-en.png)](https://platform.minimax.io/subscribe/coding-plan?code=5q2B2ljfdw&source=link)
 
-MiniMax-M2.7 is a next-generation large language model designed for autonomous evolution and real-world productivity. Unlike traditional models, M2.7 actively participates in its own improvement through agent teams, dynamic tool use, and reinforcement learning loops. It delivers strong performance in software engineering (56.22% on SWE-Pro, 55.6% on VIBE-Pro, 57.0% on Terminal Bench 2) and excels in complex office workflows, achieving a leading 1495 ELO on GDPval-AA. With high-fidelity editing across Word, Excel, and PowerPoint, and a 97% adherence rate across 40+ complex skills, M2.7 sets a new standard for building AI-native workflows and organizations.
+MiniMax M2.7 is a frontier LLM built for agentic execution, SOTA performance, and real-world productivity—it plans, codes, uses tools, and completes complex workflows end-to-end, then iteratively improves its own performance. It delivers state-of-the-art results on software engineering and agent benchmarks (e.g., ~56% SWE-Pro, strong performance across VIBE, Terminal Bench, and agent evaluations) while extending that same capability into office work—creating and editing high-quality Word, Excel, and PowerPoint outputs with deliverable-level accuracy . Designed for long-horizon tasks, M2.7 combines deep reasoning, tool orchestration, and reliable multi-step execution, pushing beyond static models toward systems that continuously optimize how they work across both technical and everyday productivity workflows.
 
 [Click ](https://platform.minimax.io/subscribe/coding-plan?code=5q2B2ljfdw&source=link)  to get an exclusive 12% off the MiniMax Token Plan!
 
