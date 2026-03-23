@@ -1,188 +1,97 @@
-import { useEffect, useState } from "react";
+import { useState, ReactNode } from "react";
+import { APIConfigPanel } from "./APIConfigPanel";
+import { MCPToolsPanel } from "./MCPToolsPanel";
+import { AgentsPanel } from "./AgentsPanel";
+
+/** Tab 类型定义 */
+type SettingsTab = "api" | "mcp" | "agents";
 
 interface SettingsModalProps {
   onClose: () => void;
 }
 
+/** Tab 配置 */
+const TABS: { id: SettingsTab; label: string; icon: ReactNode }[] = [
+  {
+    id: "api",
+    label: "API 配置",
+    icon: (
+      <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M15 7h3a5 5 0 0 1 0 10h-3m-6 0H6a5 5 0 1 1 0-10h3" />
+        <line x1="8" y1="12" x2="16" y2="12" />
+      </svg>
+    ),
+  },
+  {
+    id: "mcp",
+    label: "MCP 工具",
+    icon: (
+      <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
+        <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+        <line x1="8" y1="21" x2="16" y2="21" />
+        <line x1="12" y1="17" x2="12" y2="21" />
+      </svg>
+    ),
+  },
+  {
+    id: "agents",
+    label: "AI 助手",
+    icon: (
+      <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
+      </svg>
+    ),
+  },
+];
+
 export function SettingsModal({ onClose }: SettingsModalProps) {
-  const [apiKey, setApiKey] = useState("");
-  const [baseURL, setBaseURL] = useState("");
-  const [model, setModel] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
-
-  useEffect(() => {
-    // 加载当前配置
-    setLoading(true);
-    window.electron.getApiConfig()
-      .then((config) => {
-        if (config) {
-          setApiKey(config.apiKey);
-          setBaseURL(config.baseURL);
-          setModel(config.model);
-        }
-      })
-      .catch((err) => {
-        console.error("Failed to load API config:", err);
-        setError("Failed to load configuration");
-      })
-      .finally(() => {
-        setLoading(false);
-      });
-  }, []);
-
-  const handleSave = async () => {
-    // 验证输入
-    if (!apiKey.trim()) {
-      setError("API Key is required");
-      return;
-    }
-    if (!baseURL.trim()) {
-      setError("Base URL is required");
-      return;
-    }
-    if (!model.trim()) {
-      setError("Model is required");
-      return;
-    }
-
-    // 验证 URL 格式
-    try {
-      new URL(baseURL);
-    } catch {
-      setError("Invalid Base URL format");
-      return;
-    }
-
-    setError(null);
-    setSaving(true);
-
-    try {
-      const result = await window.electron.saveApiConfig({
-        apiKey: apiKey.trim(),
-        baseURL: baseURL.trim(),
-        model: model.trim(),
-        apiType: "anthropic"
-      });
-
-      if (result.success) {
-        setSuccess(true);
-        setTimeout(() => {
-          setSuccess(false);
-          onClose();
-        }, 1000);
-      } else {
-        setError(result.error || "Failed to save configuration");
-      }
-    } catch (err) {
-      console.error("Failed to save API config:", err);
-      setError("Failed to save configuration");
-    } finally {
-      setSaving(false);
-    }
-  };
+  const [activeTab, setActiveTab] = useState<SettingsTab>("api");
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/20 px-4 py-8 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-2xl border border-ink-900/5 bg-surface p-6 shadow-elevated">
-        <div className="flex items-center justify-between">
-          <div className="text-base font-semibold text-ink-800">API Configuration</div>
+      <div className="w-full max-w-lg rounded-2xl border border-ink-900/5 bg-surface shadow-elevated flex flex-col max-h-[90vh]">
+        {/* 头部 */}
+        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-ink-900/5">
+          <div className="text-base font-semibold text-ink-800">设置</div>
           <button
             className="rounded-full p-1.5 text-muted hover:bg-surface-tertiary hover:text-ink-700 transition-colors"
             onClick={onClose}
-            aria-label="Close"
+            aria-label="关闭"
           >
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M18 6L6 18M6 6l12 12" />
             </svg>
           </button>
         </div>
-        <p className="mt-2 text-sm text-muted">Supports Anthropic’s official API as well as third-party APIs compatible with the Anthropic format.</p>
 
-        {loading ? (
-          <div className="mt-5 flex items-center justify-center py-8">
-            <svg aria-hidden="true" className="w-6 h-6 animate-spin text-accent" viewBox="0 0 100 101" fill="none">
-              <path d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z" fill="currentColor" opacity="0.3" />
-              <path d="M93.9676 39.0409C96.393 38.4038 97.8624 35.9116 97.0079 33.5539C95.2932 28.8227 92.871 24.3692 89.8167 20.348C85.8452 15.1192 80.8826 10.7238 75.2124 7.41289C69.5422 4.10194 63.2754 1.94025 56.7698 1.05124C51.7666 0.367541 46.6976 0.446843 41.7345 1.27873C39.2613 1.69328 37.813 4.19778 38.4501 6.62326C39.0873 9.04874 41.5694 10.4717 44.0505 10.1071C47.8511 9.54855 51.7191 9.52689 55.5402 10.0491C60.8642 10.7766 65.9928 12.5457 70.6331 15.2552C75.2735 17.9648 79.3347 21.5619 82.5849 25.841C84.9175 28.9121 86.7997 32.2913 88.1811 35.8758C89.083 38.2158 91.5421 39.6781 93.9676 39.0409Z" fill="currentColor" />
-            </svg>
-          </div>
-        ) : (
-          <div className="mt-5 grid gap-4">
-            <label className="grid gap-1.5">
-              <span className="text-xs font-medium text-muted">Base URL</span>
-              <input
-                type="url"
-                className="rounded-xl border border-ink-900/10 bg-surface-secondary px-4 py-2.5 text-sm text-ink-800 placeholder:text-muted-light focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/20 transition-colors"
-                placeholder="htts://..."
-                value={baseURL}
-                onChange={(e) => setBaseURL(e.target.value)}
-                required
-              />
-            </label>
+        {/* Tab 导航 */}
+        <div className="flex px-6 pt-4 gap-1 border-b border-ink-900/5">
+          {TABS.map((tab) => (
+            <button
+              key={tab.id}
+              className={`
+                flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg transition-all
+                ${activeTab === tab.id
+                  ? "text-accent bg-accent/5 border-b-2 border-accent -mb-px"
+                  : "text-muted hover:text-ink-700 hover:bg-surface-tertiary"
+                }
+              `}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              {tab.icon}
+              {tab.label}
+            </button>
+          ))}
+        </div>
 
-            <label className="grid gap-1.5">
-              <span className="text-xs font-medium text-muted">API Key</span>
-              <input
-                type="string"
-                className="rounded-xl border border-ink-900/10 bg-surface-secondary px-4 py-2.5 text-sm text-ink-800 placeholder:text-muted-light focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/20 transition-colors"
-                placeholder="sk-..."
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                required
-              />
-            </label>
-
-            <label className="grid gap-1.5">
-              <span className="text-xs font-medium text-muted">Model Name</span>
-              <input
-                type="text"
-                className="rounded-xl border border-ink-900/10 bg-surface-secondary px-4 py-2.5 text-sm text-ink-800 placeholder:text-muted-light focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/20 transition-colors"
-                placeholder="claude-3-5-sonnet-20241022"
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                required
-              />
-            </label>
-
-            {error && (
-              <div className="rounded-xl border border-error/20 bg-error-light px-4 py-2.5 text-sm text-error">
-                {error}
-              </div>
-            )}
-
-            {success && (
-              <div className="rounded-xl border border-success/20 bg-success-light px-4 py-2.5 text-sm text-success">
-                Configuration saved successfully!
-              </div>
-            )}
-
-            <div className="flex gap-3">
-              <button
-                className="flex-1 rounded-xl border border-ink-900/10 bg-surface px-4 py-2.5 text-sm font-medium text-ink-700 hover:bg-surface-tertiary transition-colors"
-                onClick={onClose}
-                disabled={saving}
-              >
-                Cancel
-              </button>
-              <button
-                className="flex-1 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-white shadow-soft hover:bg-accent-hover transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-                onClick={handleSave}
-                disabled={saving || !apiKey.trim() || !baseURL.trim() || !model.trim()}
-              >
-                {saving ? (
-                  <svg aria-hidden="true" className="mx-auto w-5 h-5 animate-spin" viewBox="0 0 100 101" fill="none">
-                    <path d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z" fill="currentColor" opacity="0.3" />
-                    <path d="M93.9676 39.0409C96.393 38.4038 97.8624 35.9116 97.0079 33.5539C95.2932 28.8227 92.871 24.3692 89.8167 20.348C85.8452 15.1192 80.8826 10.7238 75.2124 7.41289C69.5422 4.10194 63.2754 1.94025 56.7698 1.05124C51.7666 0.367541 46.6976 0.446843 41.7345 1.27873C39.2613 1.69328 37.813 4.19778 38.4501 6.62326C39.0873 9.04874 41.5694 10.4717 44.0505 10.1071C47.8511 9.54855 51.7191 9.52689 55.5402 10.0491C60.8642 10.7766 65.9928 12.5457 70.6331 15.2552C75.2735 17.9648 79.3347 21.5619 82.5849 25.841C84.9175 28.9121 86.7997 32.2913 88.1811 35.8758C89.083 38.2158 91.5421 39.6781 93.9676 39.0409Z" fill="white" />
-                  </svg>
-                ) : "Save"}
-              </button>
-            </div>
-          </div>
-        )}
+        {/* Tab 内容 */}
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          {activeTab === "api" && <APIConfigPanel onSuccess={onClose} />}
+          {activeTab === "mcp" && <MCPToolsPanel />}
+          {activeTab === "agents" && <AgentsPanel />}
+        </div>
       </div>
     </div>
   );
 }
-

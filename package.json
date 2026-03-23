@@ -16,7 +16,8 @@
 		"dist:mac-arm64": "bun run transpile:electron && bun run build && electron-builder --mac --arm64",
 		"dist:mac-x64": "bun run transpile:electron && bun run build && electron-builder --mac --x64",
 		"dist:win": "bun run transpile:electron && bun run build && electron-builder --win --x64",
-		"dist:linux": "bun run transpile:electron && bun run build && electron-builder --linux --x64"
+		"dist:linux": "bun run transpile:electron && bun run build && electron-builder --linux --x64",
+		"postinstall": "electron-rebuild -f -w better-sqlite3"
 	},
 	"dependencies": {
 		"@anthropic-ai/claude-agent-sdk": "^0.2.6",
@@ -41,7 +42,7 @@
 		"@eslint/js": "^9.39.2",
 		"@types/better-sqlite3": "^7.6.13",
 		"@types/os-utils": "^0.0.4",
-		"@types/react": "^19.2.7",
+		"@types/react": "^19.2.14",
 		"@types/react-dom": "^19.2.3",
 		"@vitejs/plugin-react": "^5.1.2",
 		"cross-env": "^10.1.0",
@@ -51,6 +52,7 @@
 		"eslint-plugin-react-hooks": "^7.0.1",
 		"eslint-plugin-react-refresh": "^0.4.26",
 		"globals": "^17.0.0",
+		"install": "^0.13.0",
 		"typescript": "~5.9.3",
 		"typescript-eslint": "^8.52.0",
 		"vite": "^7.3.1"
