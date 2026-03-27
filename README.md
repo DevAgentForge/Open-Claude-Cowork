@@ -6,7 +6,7 @@
 [![Version](https://img.shields.io/badge/version-0.0.2-blue.svg)](https://github.com/DevAgentForge/Claude-Cowork/releases)
 [![Platform](https://img.shields.io/badge/platform-%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/DevAgentForge/Claude-Cowork/releases)
 
-[简体中文](README_ZH.md)
+[简体中文](README_ZH.md) | [繁體中文](README_ZH_hk.md)
 
 </div>
 
