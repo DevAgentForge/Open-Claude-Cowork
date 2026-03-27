@@ -9,7 +9,10 @@ export function isDev(): boolean {
 }
 
 // Making IPC Typesafe
-export function ipcMainHandle<Key extends keyof EventPayloadMapping>(key: Key, handler: (...args: any[]) => EventPayloadMapping[Key] | Promise<EventPayloadMapping[Key]>) {
+export function ipcMainHandle<Key extends keyof EventPayloadMapping>(
+    key: Key,
+    handler: (...args: any[]) => EventPayloadMapping[Key] | Promise<EventPayloadMapping[Key]>
+) {
     ipcMain.handle(key, (event, ...args) => {
         if (event.senderFrame) validateEventFrame(event.senderFrame);
 
