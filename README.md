@@ -62,20 +62,18 @@ That means:
 - [Bun](https://bun.sh/) or Node.js 22+
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated
 
-bash
-#### Clone the repository
+```bash
+# Clone the repository
 git clone https://github.com/DevAgentForge/agent-cowork.git
 cd agent-cowork
 
-#### Install dependencies
+# Install dependencies
 bun install
 
-#### Run in development mode
+# Run in development mode
 bun run dev
 
-#### Or build production binaries
-
-```bash
+# Or build production binaries
 bun run dist:mac-arm64    # macOS Apple Silicon (M1/M2/M3)
 bun run dist:mac-x64      # macOS Intel
 bun run dist:win          # Windows
@@ -90,14 +88,13 @@ https://github.com/user-attachments/assets/8ce58c8b-4024-4c01-82ee-f8d8ed6d4bba
 
 ## 🛠 Development
 
-bash
-#### Start development server (hot reload)
+```bash
+# Start development server (hot reload)
 bun run dev
 
-#### Type checking / build
+# Type checking / build
 bun run build
-
-
+```
 
 ## 🗺 Roadmap
 
