@@ -1,7 +1,12 @@
 import { ipcMain, WebContents, WebFrameMain } from "electron";
 import { getUIPath } from "./pathResolver.js";
 import { pathToFileURL } from "url";
-export const DEV_PORT = 5173;
+import { config } from 'dotenv';
+
+// Load environment variables from .env file
+config();
+
+export const DEV_PORT = process.env.PORT ? parseInt(process.env.PORT) : 10087;
 
 // Checks if you are in development mode
 export function isDev(): boolean {

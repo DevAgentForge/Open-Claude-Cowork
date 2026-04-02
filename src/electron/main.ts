@@ -10,6 +10,13 @@ import { getCurrentApiConfig } from "./libs/claude-settings.js";
 import type { ClientEvent } from "./types.js";
 import "./libs/claude-settings.js";
 
+// Disable sandbox and GPU acceleration to fix initialization issues on macOS
+app.commandLine.appendSwitch('no-sandbox');
+app.commandLine.appendSwitch('disable-gpu');
+app.commandLine.appendSwitch('disable-software-rasterizer');
+app.commandLine.appendSwitch('in-process-gpu');
+app.commandLine.appendSwitch('disable-network-service');
+
 let cleanupComplete = false;
 let mainWindow: BrowserWindow | null = null;
 
